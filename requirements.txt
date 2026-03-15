@@ -5,3 +5,5 @@ httpx
 Pillow
 apscheduler
 python-dotenv
+fastapi
+uvicorn
