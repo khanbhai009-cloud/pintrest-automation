@@ -1,0 +1,7 @@
+groq
+gspread
+google-auth
+httpx
+Pillow
+apscheduler
+python-dotenv
