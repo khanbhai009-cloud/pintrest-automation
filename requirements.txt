@@ -10,3 +10,4 @@ groq
 langchain-groq
 langchain-core
 langgraph
+typing_extensions
