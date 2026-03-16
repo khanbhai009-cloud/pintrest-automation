@@ -12,10 +12,16 @@ SCOPES = [
 ]
 
 def _get_sheet():
-    creds_dict = json.loads(GOOGLE_CREDS_JSON)
-    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    client = gspread.authorize(creds)
-    return client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
+    try:
+        creds_dict = json.loads(GOOGLE_CREDS_JSON)
+        creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
+        logger.info("✅ Sheet connected")
+        return sheet
+    except Exception as e:
+        logger.error(f"❌ Sheet connection failed: {e}")
+        raise
 
 def get_pending_products(limit: int = 2) -> list:
     sheet = _get_sheet()
@@ -40,11 +46,14 @@ def save_products(products: list) -> None:
     sheet = _get_sheet()
     for p in products:
         sheet.append_row([
-            p.get("product_name"),
-            p.get("gravity"),
-            p.get("category"),
-            p.get("affiliate_link"),
-            p.get("image_url"),
+            p.get("product_name", ""),
+            p.get("product_id", ""),
+            p.get("sale_price", ""),
+            p.get("rating", ""),
+            p.get("orders", ""),
+            p.get("affiliate_link", ""),
+            p.get("image_url", ""),
+            p.get("keyword", ""),
             "PENDING"
         ])
     logger.info(f"💾 Saved {len(products)} products to sheet")
@@ -52,8 +61,11 @@ def save_products(products: list) -> None:
 def count_pending() -> int:
     sheet = _get_sheet()
     records = sheet.get_all_records()
-    return sum(1 for r in records if r.get("Status") == "PENDING")
+    count = sum(1 for r in records if r.get("Status") == "PENDING")
+    logger.info(f"📊 Pending count: {count}")
+    return count
 
 def get_all_products() -> list:
     sheet = _get_sheet()
     return sheet.get_all_records()
+PYEOF
