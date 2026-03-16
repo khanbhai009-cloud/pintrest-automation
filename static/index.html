@@ -167,7 +167,7 @@ async function runAgent(){
 }
 function startPolling(){if(polling)return;polling=setInterval(()=>{loadStats();loadProducts();},3000);}
 function stopPolling(){if(polling){clearInterval(polling);polling=null;}}
-loadStats();loadProducts();setInterval(loadStats,15000);
+loadStats();loadProducts();setInterval(loadStats,30000);
 </script>
 </body>
 </html>

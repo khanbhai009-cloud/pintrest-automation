@@ -19,10 +19,10 @@ from config import GROQ_API_KEY, GROQ_MODEL, LOW_STOCK_THRESHOLD, DAILY_POST_LIM
 logger = logging.getLogger(__name__)
 
 class BotState(TypedDict):
-    messages: Annotated[list, add_messages]
+    messages:     Annotated[list, add_messages]
     posted_count: int
-    refilled: bool
-    errors: list[str]
+    refilled:     bool
+    errors:       list[str]
 
 @tool
 def check_stock() -> dict:
@@ -34,20 +34,22 @@ def check_stock() -> dict:
 @tool
 async def fetch_aliexpress_products(keyword: str = "", max_items: int = 20) -> dict:
     """
-    Search AliExpress for trending products using RapidAPI DataHub.
-    Picks high-rated, high-orders products only.
-    Wraps each product URL with Admitad affiliate deeplink.
-    Filters with Groq AI for quality.
-    Saves approved products to Google Sheets with PENDING status.
-    Call this when stock is low.
+    Fetch AliExpress products by keyword. Wrap with Admitad affiliate link.
+    Filter with Groq AI. Save approved to Google Sheets.
+    Call ONCE when stock is low. If result is 0 products, STOP and report — do NOT retry.
     """
     if not keyword:
         keyword = random.choice(DEFAULT_KEYWORDS)
     logger.info(f"🛒 AliExpress fetch: '{keyword}'")
     raw = await search_products(keyword=keyword, max_results=max_items)
     if not raw:
-        return {"approved": 0, "error": "No products from AliExpress"}
-    linked = [enrich_with_affiliate_link(p) for p in raw]
+        return {
+            "approved": 0,
+            "fetched": 0,
+            "keyword": keyword,
+            "error": "AliExpress API returned 0 products. Do NOT retry. Report this in summary."
+        }
+    linked   = [enrich_with_affiliate_link(p) for p in raw]
     approved = [p for p in linked if filter_product(p)]
     if approved:
         save_products(approved)
@@ -57,26 +59,19 @@ async def fetch_aliexpress_products(keyword: str = "", max_items: int = 20) -> d
 @tool
 async def publish_next_pin() -> dict:
     """
-    Takes next PENDING product from Google Sheets.
-    Generates SEO-optimized Pinterest content via Groq:
-      - Title (max 100 chars, curiosity hook, keyword-rich)
-      - Description (max 500 chars, benefits, CTA, hashtags)
-      - 5 niche hashtags
-    Embeds Admitad affiliate deeplink as pin destination URL.
-    Processes product image (resize 1000x1500, dark overlay, title text).
-    Posts to Pinterest via Make.com webhook.
-    Marks product as POSTED in Google Sheets.
+    Get next PENDING product, generate Pinterest copy with Groq,
+    post via Make.com to Pinterest, mark as POSTED in sheet.
     """
     pending = get_pending_products(limit=1)
     if not pending:
-        return {"success": False, "reason": "No pending products"}
+        return {"success": False, "reason": "No pending products in sheet"}
     product = pending[0]
-    name = product.get("product_name", "Unknown")
+    name    = product.get("product_name", "Unknown")
     try:
-        copy = generate_pin_copy(product)
-        title = copy.get("title", name)
+        copy        = generate_pin_copy(product)
+        title       = copy.get("title", name)
         description = copy.get("description", "")
-        tags = copy.get("tags", [])
+        tags        = copy.get("tags", [])
         image_bytes = await process_product_image(product.get("image_url", ""), title)
         if not image_bytes:
             return {"success": False, "reason": f"Image failed: {name}"}
@@ -87,7 +82,7 @@ async def publish_next_pin() -> dict:
         if success:
             mark_as_posted(name)
             logger.info(f"🎉 Posted: {name}")
-            return {"success": True, "product": name, "title": title, "affiliate_link": product.get("affiliate_link")}
+            return {"success": True, "product": name, "title": title}
         return {"success": False, "reason": f"Webhook failed: {name}"}
     except Exception as e:
         logger.error(f"❌ publish error: {e}")
@@ -101,67 +96,33 @@ llm = ChatGroq(
     temperature=0.1,
 ).bind_tools(ALL_TOOLS)
 
-SYSTEM_PROMPT = f"""You are an expert autonomous Pinterest affiliate marketing bot targeting Indian audiences.
-You source products from AliExpress via RapidAPI and monetize them using Admitad affiliate deeplinks.
+SYSTEM_PROMPT = f"""You are an autonomous Pinterest affiliate marketing bot.
 
-=== YOUR FULL JOB EACH RUN ===
+STRICT RULES — follow exactly:
+1. Call check_stock ONCE.
+2. If low_stock=true: call fetch_aliexpress_products ONCE with one keyword.
+   - If it returns approved=0 or error: STOP immediately. Write summary and END.
+   - Do NOT retry with another keyword. Do NOT call fetch again.
+3. If stock is sufficient OR fetch succeeded: call publish_next_pin ONCE.
+4. END after publish attempt.
 
-STEP 1 — STOCK CHECK:
-Call check_stock. Get pending_count and low_stock status.
+NEVER call any tool more than once per run.
+NEVER loop or retry on 0 results.
 
-STEP 2 — PRODUCT SOURCING (only if low_stock=true):
-Call fetch_aliexpress_products with a smart keyword.
-Choose keywords based on what sells well on Pinterest India:
-- Trending: "home decor", "kitchen gadgets", "phone accessories", "beauty tools"
-- Seasonal: match current Indian season/festival if possible
-- High-intent: products people BUY, not just browse
-Wait for fetch to fully complete before moving to step 3.
-
-STEP 3 — PUBLISH PIN:
-Call publish_next_pin exactly {DAILY_POST_LIMIT} time(s).
-
-Inside publish_next_pin, the following happens automatically:
-  a) PRODUCT SELECTION: Next PENDING product from Google Sheets
-  b) SEO TITLE (Groq generates):
-     - Max 100 characters
-     - Strong curiosity hook ("This gadget changed my kitchen forever")
-     - Include primary keyword naturally
-     - No ALL CAPS spam, no fake urgency
-     - Hindi/English mix ok (Hinglish) for Indian audience
-  c) SEO DESCRIPTION (Groq generates):
-     - Max 500 characters  
-     - Line 1: Main benefit/problem solved
-     - Line 2-3: Key features (2-3 bullet points)
-     - Line 4: Soft CTA ("Check price →" or "Shop now →")
-     - End with 5 niche hashtags
-     - Example hashtags: #HomeGadgets #KitchenHacks #AliExpressFinds #IndianShopping #BestDeals
-  d) AFFILIATE LINK: Admitad deeplink already embedded (rzekl.com/g/...)
-     This is the URL Pinterest users click → goes to AliExpress with your tracking
-  e) IMAGE: Product image resized to 1000x1500px with title overlay
-  f) POST: Sent to Pinterest via Make.com webhook
-
-STEP 4 — STOP CONDITIONS:
-- Stop after posting {DAILY_POST_LIMIT} pin(s)
-- Stop if publish_next_pin returns success=false
-- Never repeat a tool call unnecessarily
-
-=== QUALITY RULES ===
-- Only approve products with good images (not broken URLs)
-- Skip products with no clear use case
-- Pinterest India audience: value-for-money products, home/lifestyle/tech
-- Affiliate link MUST be the rzekl.com Admitad deeplink — never raw AliExpress URL
-
-=== END RESPONSE ===
-After finishing, write exactly this format:
-FETCHED: [X products] via keyword "[keyword]" (or "N/A - stock was sufficient")
-POSTED: [product name] | Title: "[pin title]" | Link: [affiliate_link]
-STATUS: [Success/Failed] — [reason if failed]"""
+End with this exact format:
+FETCHED: [X products] via "[keyword]" OR "Skipped — stock ok" OR "Failed — 0 results"
+POSTED: [product name + title] OR "Skipped" OR "Failed — [reason]"
+STATUS: Success / Partial / Failed"""
 
 async def agent_node(state: BotState) -> dict:
+    # Hard stop — prevent infinite loops
+    if len(state["messages"]) > 12:
+        logger.warning("⚠️ Max messages reached — forcing END")
+        from langchain_core.messages import AIMessage
+        return {"messages": [AIMessage(content="FETCHED: Unknown\nPOSTED: Stopped — max iterations\nSTATUS: Failed — loop guard triggered")]}
     logger.info(f"🧠 Agent thinking... ({len(state['messages'])} messages)")
     response = await llm.ainvoke(state["messages"])
-    tool_count = len(response.tool_calls) if hasattr(response, "tool_calls") else 0
-    logger.info(f"🔧 Tool calls planned: {tool_count}")
+    logger.info(f"🔧 Tool calls: {len(response.tool_calls) if hasattr(response, 'tool_calls') else 0}")
     return {"messages": [response]}
 
 def should_continue(state: BotState) -> str:
@@ -185,11 +146,9 @@ async def run_agent(trigger: str = "scheduled") -> dict:
     final_state = await agent.ainvoke({
         "messages": [
             SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(content=f"Run the full Pinterest affiliate bot cycle now. Trigger: {trigger}. Follow all steps in the system prompt exactly."),
+            HumanMessage(content=f"Run Pinterest bot cycle. Trigger: {trigger}"),
         ],
-        "posted_count": 0,
-        "refilled": False,
-        "errors": [],
+        "posted_count": 0, "refilled": False, "errors": [],
     })
     summary = getattr(final_state["messages"][-1], "content", "Done")
     logger.info(f"✅ Agent done: {summary}")
