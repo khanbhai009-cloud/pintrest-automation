@@ -68,4 +68,3 @@ def count_pending() -> int:
 def get_all_products() -> list:
     sheet = _get_sheet()
     return sheet.get_all_records()
-PYEOF
