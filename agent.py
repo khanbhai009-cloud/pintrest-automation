@@ -88,8 +88,9 @@ Each run:
 4. Stop when done or if publish returns success=false.
 End with 2-line summary: fetched count + posted result."""
 
-def agent_node(state: BotState) -> dict:
-    return {"messages": [llm.invoke(state["messages"])]}
+async def agent_node(state: BotState) -> dict:
+    response = await llm.ainvoke(state["messages"])
+    return {"messages": [response]}
 
 def should_continue(state: BotState) -> str:
     last = state["messages"][-1]
