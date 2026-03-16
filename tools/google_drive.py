@@ -13,14 +13,22 @@ SCOPES = [
 
 def _get_sheet():
     try:
-        creds_dict = json.loads(GOOGLE_CREDS_JSON)
+        # Pata lagate hain ki JSON sahi se load ho raha hai ya nahi
+        try:
+            creds_dict = json.loads(GOOGLE_CREDS_JSON)
+        except Exception as json_err:
+            logger.exception("❌ JSON Decode Error: Aapke GOOGLE_CREDS_JSON ka format galat hai.")
+            raise json_err
+
         creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
         client = gspread.authorize(creds)
         sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
         logger.info("✅ Sheet connected")
         return sheet
+        
     except Exception as e:
-        logger.error(f"❌ Sheet connection failed: {e}")
+        # logger.exception poora traceback (error ki detail) terminal mein print karega
+        logger.exception("❌ Sheet connection failed ki poori details:")
         raise
 
 def get_pending_products(limit: int = 2) -> list:
