@@ -20,7 +20,7 @@ async def search_products(keyword: str, page: int = 1, max_results: int = 20) ->
             r = await client.get(
                 f"{BASE_URL}/item_search_2",
                 headers=HEADERS,
-                params={"q": keyword, "page": str(page), "sort": "SALE_PRICE_ASC"},
+                params={"q": keyword, "page": str(page), "sort": "LAST_VOLUME_DESC"},
             )
         r.raise_for_status()
         data = r.json()
