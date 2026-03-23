@@ -40,7 +40,6 @@ Product: {json.dumps(product)}
 Rules:
 - Title: Max 100 chars, curiosity hook, keyword-rich ok 
 - Description: Max 500 chars, benefits + CTA, emojis, hashtags at end
-- Tags: 5 niche hashtags
 
 Respond ONLY with valid JSON:
 {{"title": "...", "description": "...", "tags": ["tag1","tag2","tag3","tag4","tag5"]}}"""
