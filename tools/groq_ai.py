@@ -32,13 +32,13 @@ Respond ONLY with valid JSON:
 
 
 def generate_pin_copy(product: dict) -> dict:
-    prompt = f"""You are a Pinterest marketing expert targeting Indian audience.
+    prompt = f"""You are a Pinterest marketing expert targeting us audience.
 Create viral pin content for this AliExpress product.
 
 Product: {json.dumps(product)}
 
 Rules:
-- Title: Max 100 chars, curiosity hook, keyword-rich, Hinglish ok
+- Title: Max 100 chars, curiosity hook, keyword-rich ok 
 - Description: Max 500 chars, benefits + CTA, emojis, hashtags at end
 - Tags: 5 niche hashtags
 
