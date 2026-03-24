@@ -12,3 +12,4 @@ langchain-groq
 langchain-core
 langgraph
 typing_extensions
+langchain_openai
