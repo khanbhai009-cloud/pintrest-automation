@@ -3,6 +3,7 @@ import random
 import time
 from typing import Annotated
 from typing_extensions import TypedDict
+
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI  # For Cerebras Fallback
 from langchain_core.tools import tool
@@ -10,6 +11,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
+
 from tools.google_drive import (
     count_pending, get_pending_products, save_products,
     mark_as_posted, get_products_without_niche, update_niche
@@ -32,12 +34,16 @@ class BotState(TypedDict):
     refilled:     bool
     errors:       list[str]
 
-account_niches = [a["niche"] for a in PINTEREST_ACCOUNTS]
-
 @tool
 def fill_missing_niches() -> dict:
+    """
+    Scan Google Sheet for products with an empty niche column.
+    Use AI to detect the correct niche from the product name and keyword.
+    Call ONCE at the start of every run.
+    """
     products = get_products_without_niche()
-    if not products: return {"updated": 0, "message": "All products already have niche set ✅"}
+    if not products: 
+        return {"updated": 0, "message": "All products already have niche set ✅"}
 
     VALID_NICHES = ["home", "kitchen", "cozy", "gadgets", "organize", "tech", "budget", "phone", "smarthome", "wfh"]
     updated = 0
@@ -48,7 +54,8 @@ def fill_missing_niches() -> dict:
         prompt = f"Categorization expert. Product: {name}. Keyword: {keyword}. Available niches: {VALID_NICHES}. Choose SINGLE best exact match."
         try:
             niche = chat(prompt, temperature=0.1).strip().lower()
-            if niche not in VALID_NICHES: niche = "home"
+            if niche not in VALID_NICHES: 
+                niche = "home"
             update_niche(name, niche)
             updated += 1
             logger.info(f"🏷️ Niche set: {name[:40]}... → {niche}")
@@ -61,6 +68,11 @@ def fill_missing_niches() -> dict:
 
 @tool
 def analyze_niche_stock() -> dict:
+    """
+    AI selects a specific sub-niche (board) and checks its stock.
+    Prevents sheet overflow by forcing existing stock usage if sheet has > 150 items.
+    Call ONCE after filling niches.
+    """
     global CURRENT_TRIGGER
     if CURRENT_TRIGGER in ["manual-account1", "scheduled-account1"]:
         allowed_niches = ["home", "kitchen", "cozy", "gadgets", "organize"]
@@ -69,9 +81,11 @@ def analyze_niche_stock() -> dict:
 
     total_pending = count_pending()
     pending_all = get_pending_products(limit=200, allowed_niches=allowed_niches)
+    
     stock_map = {n: 0 for n in allowed_niches}
     for p in pending_all:
-        stock_map[p.get("niche")] += 1
+        if p.get("niche") in stock_map:
+            stock_map[p.get("niche")] += 1
 
     # 🔥 GUARD: 150 Limit Set Here
     if total_pending > 150:
@@ -89,9 +103,13 @@ def analyze_niche_stock() -> dict:
 
 @tool
 async def fetch_aliexpress_products(niche: str) -> dict:
+    """
+    Fetches trending products strictly for the selected niche with built-in fallback.
+    Call ONCE only if analyze_niche_stock says needs_fetching is true.
+    """
     niche_keywords = KEYWORDS_BY_NICHE.get(niche, DEFAULT_KEYWORDS)
     
-    # 🔥 FIX: 3-Keyword Fallback System
+    # 3-Keyword Fallback System
     max_attempts = min(3, len(niche_keywords)) if niche_keywords else 1
     keywords_to_try = random.sample(niche_keywords, max_attempts) if niche_keywords else [f"best {niche} products 2026"]
     
@@ -107,8 +125,9 @@ async def fetch_aliexpress_products(niche: str) -> dict:
         approved = [p for p in linked if filter_product(p)]
         
         if approved:
-            # 🔥 Fix: Force Correct Tag before saving
-            for p in approved: p["niche"] = niche
+            # Force Correct Tag before saving
+            for p in approved: 
+                p["niche"] = niche
             save_products(approved)
             logger.info(f"✅ Success! Saved {len(approved)} products on attempt {attempt}.")
             return {"keyword": keyword, "niche": niche, "fetched": len(raw), "approved": len(approved)}
@@ -119,11 +138,16 @@ async def fetch_aliexpress_products(niche: str) -> dict:
 
 @tool
 async def publish_next_pin(niche: str) -> dict:
+    """
+    Get next PENDING product for the specific niche, generate viral copy, and publish.
+    Call ONCE.
+    """
     global CURRENT_TRIGGER
     target_account = "Account1_HomeDecor" if "account1" in str(CURRENT_TRIGGER) else "Account2_Tech"
 
     pending = get_pending_products(limit=1, allowed_niches=[niche])
-    if not pending: return {"success": False, "reason": f"No products for niche: {niche}"}
+    if not pending: 
+        return {"success": False, "reason": f"No products for niche: {niche}"}
 
     product = pending[0]
     name    = product.get("product_name", "Unknown")
@@ -135,7 +159,8 @@ async def publish_next_pin(niche: str) -> dict:
         tags        = copy.get("tags", [])
 
         image_bytes = await process_product_image(product.get("image_url", ""), title)
-        if not image_bytes: return {"success": False, "reason": "Image processing failed"}
+        if not image_bytes: 
+            return {"success": False, "reason": "Image processing failed"}
 
         success = await post_to_pinterest(
             image_url=product.get("image_url"), title=title, description=description,
@@ -162,7 +187,11 @@ fallback_llm = ChatOpenAI(api_key=CEREBRAS_API_KEY, base_url="https://api.cerebr
 # Agar Groq 429 Limit marega, toh ye automatically Cerebras pe shift ho jayega!
 llm = primary_llm.with_fallbacks([fallback_llm])
 
-SYSTEM_PROMPT = f"""You are PINTERESTO — an elite autonomous Pinterest affiliate marketing bot.
+# 🔥 ELITE STRATEGIST SYSTEM PROMPT 🔥
+SYSTEM_PROMPT = f"""You are PINTERESTO — an Elite AI Strategist and Senior Affiliate Marketing Director. You are a highly intelligent autonomous entity managing {len(PINTEREST_ACCOUNTS)} high-traffic Pinterest business accounts.
+
+You possess the mindset of a top-tier Growth Hacker with over 10 years of experience in dominating Pinterest algorithms and maximizing affiliate revenue. You make calculated, data-driven, and highly efficient decisions. You do not guess, you do not retry blindly, and you execute with lethal precision.
+
 ═══════════════════════════════════════
 EXECUTION PROTOCOL — FOLLOW EXACTLY
 ═══════════════════════════════════════
@@ -171,6 +200,7 @@ STEP 2 → analyze_niche_stock()
 STEP 3 → fetch_aliexpress_products(niche="<selected_niche>") [ONLY if needs_fetching=true]
 STEP 4 → publish_next_pin(niche="<selected_niche>")
 STEP 5 → END
+
 MANDATORY END FORMAT:
 NICHES FILLED: [X products updated]
 TARGET BOARD: "[selected_niche]"
@@ -182,7 +212,7 @@ async def agent_node(state: BotState) -> dict:
     if len(state["messages"]) > 14:
         from langchain_core.messages import AIMessage
         return {"messages": [AIMessage(content="NICHES FILLED: Unknown\nTARGET BOARD: Unknown\nFETCHED: Unknown\nPOSTED: Stopped — loop guard\nSTATUS: Failed")]}
-    logger.info(f"🧠 Agent thinking... ({len(state['messages'])} messages)")
+    logger.info(f"🧠 AI Strategist thinking... ({len(state['messages'])} messages)")
     response = await llm.ainvoke(state["messages"])
     return {"messages": [response]}
 
@@ -202,12 +232,12 @@ def build_agent():
 async def run_agent(trigger: str = "scheduled") -> dict:
     global CURRENT_TRIGGER
     CURRENT_TRIGGER = trigger
-    logger.info(f"🤖 Agent started — {trigger}")
+    logger.info(f"🚀 AI Strategist started — {trigger}")
     agent = build_agent()
     final_state = await agent.ainvoke({
         "messages": [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=f"Run cycle. Trigger: {trigger}")],
         "posted_count": 0, "refilled": False, "errors": [],
     })
     summary = getattr(final_state["messages"][-1], "content", "Done")
-    logger.info(f"✅ Agent done:\n{summary}")
+    logger.info(f"✅ AI Strategist done:\n{summary}")
     return {"status": "ok", "summary": summary, "trigger": trigger}
