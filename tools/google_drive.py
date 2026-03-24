@@ -11,8 +11,14 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive"
 ]
 
+# Connection cache — ek baar connect, baar baar use karo
+_sheet_cache = None
+
 
 def _get_sheet():
+    global _sheet_cache
+    if _sheet_cache is not None:
+        return _sheet_cache  # Cache se lo — no extra API call ✅
     try:
         try:
             creds_dict = json.loads(GOOGLE_CREDS_JSON)
@@ -20,11 +26,11 @@ def _get_sheet():
             logger.exception("❌ GOOGLE_CREDS_JSON format galat hai.")
             raise json_err
 
-        creds  = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-        client = gspread.authorize(creds)
-        sheet  = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
+        creds        = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+        client       = gspread.authorize(creds)
+        _sheet_cache = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
         logger.info("✅ Sheet connected")
-        return sheet
+        return _sheet_cache
 
     except Exception as e:
         logger.exception("❌ Sheet connection failed:")
@@ -53,21 +59,29 @@ def mark_as_posted(product_name: str) -> bool:
 
 
 def save_products(products: list) -> None:
+    if not products:
+        return
     sheet = _get_sheet()
+
+    # Saari rows pehle prepare karo
+    rows = []
     for p in products:
-        sheet.append_row([
-            p.get("product_name", ""),
-            p.get("product_id",   ""),
-            p.get("sale_price",   ""),
-            p.get("rating",       ""),
-            p.get("orders",       ""),
+        rows.append([
+            p.get("product_name",   ""),
+            p.get("product_id",     ""),
+            p.get("sale_price",     ""),
+            p.get("rating",         ""),
+            p.get("orders",         ""),
             p.get("affiliate_link", ""),
-            p.get("image_url",    ""),
-            p.get("keyword",      ""),
-            p.get("niche",        "home"),  # Niche column
+            p.get("image_url",      ""),
+            p.get("keyword",        ""),
+            p.get("niche",          "home"),
             "PENDING"
         ])
-    logger.info(f"💾 Saved {len(products)} products to sheet")
+
+    # Ek saath insert — sirf 1 API call ✅
+    sheet.append_rows(rows, value_input_option="RAW")
+    logger.info(f"💾 Saved {len(rows)} products in 1 API call ✅")
 
 
 def count_pending() -> int:
