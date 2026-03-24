@@ -23,8 +23,8 @@ PINTEREST_ACCOUNTS = [
         "webhook_url": os.getenv("MAKE_WEBHOOK_URL"),
         "niche":       "home",
         "boards": {
-            "home":     "909445787192891740",  
-            "kitchen":  "909445787192886518",  
+            "home":     "909445787192886518",  
+            "kitchen":  "909445787192891736",  
             "cozy":     "909445787192891741",  
             "gadgets":  "909445787192891742",  
             "organize": "909445787192891737",  
