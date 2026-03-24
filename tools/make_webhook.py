@@ -1,9 +1,8 @@
 import httpx
 import logging
-from config import get_next_account
+from config import PINTEREST_ACCOUNTS
 
 logger = logging.getLogger(__name__)
-
 
 async def post_to_pinterest(
     image_url: str,
@@ -11,13 +10,16 @@ async def post_to_pinterest(
     description: str,
     link: str,
     tags: list,
-    niche: str = "default"
+    niche: str = "default",
+    target_account: str = None
 ) -> bool:
-    """
-    Round robin account rotation + niche-based dynamic board selection.
-    Sends pin to Make.com webhook → Pinterest.
-    """
-    account  = get_next_account()
+    
+    # Strictly target account find karo
+    if target_account:
+        account = next((a for a in PINTEREST_ACCOUNTS if a["name"] == target_account), PINTEREST_ACCOUNTS[0])
+    else:
+        account = next((a for a in PINTEREST_ACCOUNTS if a["niche"] == niche), PINTEREST_ACCOUNTS[0])
+
     board_id = account["boards"].get(niche, account["boards"]["default"])
 
     hashtags = " ".join([f"#{t.strip()}" for t in tags])
