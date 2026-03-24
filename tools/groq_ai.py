@@ -66,12 +66,11 @@ TITLE RULES (CRITICAL for SEO):
 - Example style: "Genius Kitchen Gadget That Saves 30 Min Daily ✨"
 
 DESCRIPTION RULES:
-- Max 500 characters
-- Open with the CORE BENEFIT (not the product feature)
+- Max 500 characters minimum 450 character with powerful seo of pinterest 
+- Open with the CORE BENEFIT & THE PRODUCT FEATURES 
 - Include 2-3 long-tail keywords naturally woven in
-- Add social proof hint if possible (e.g., "thousands ordered this")
+- Add example how this product help you 
 - Clear CTA: "Shop now via link in bio", "Grab it before it sells out"
-- End with 3-5 NICHE hashtags (NOT generic like #shopping)
 - Use emojis strategically — 2-4 max, not spammy
 
 HASHTAG RULES:
