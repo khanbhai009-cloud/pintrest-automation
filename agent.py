@@ -4,6 +4,7 @@ import time
 from typing import Annotated
 from typing_extensions import TypedDict
 from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI  # For Cerebras Fallback
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END
@@ -19,7 +20,7 @@ from tools.aliexpress import search_products, KEYWORDS_BY_NICHE, DEFAULT_KEYWORD
 from tools.admitad import enrich_with_affiliate_link
 from utils.image_processor import process_product_image
 from tools.llm import chat
-from config import GROQ_API_KEY, GROQ_MODEL, PINTEREST_ACCOUNTS
+from config import GROQ_API_KEY, GROQ_MODEL, CEREBRAS_API_KEY, CEREBRAS_MODEL, PINTEREST_ACCOUNTS
 
 logger = logging.getLogger(__name__)
 
@@ -35,32 +36,22 @@ account_niches = [a["niche"] for a in PINTEREST_ACCOUNTS]
 
 @tool
 def fill_missing_niches() -> dict:
-    """
-    Scan Google Sheet for products with empty niche column.
-    Use AI to detect correct niche from product name + keyword.
-    Call ONCE at the start of every run.
-    """
     products = get_products_without_niche()
-    if not products:
-        return {"updated": 0, "message": "All products already have niche set ✅"}
+    if not products: return {"updated": 0, "message": "All products already have niche set ✅"}
 
-    VALID_NICHES = [
-        "home", "kitchen", "cozy", "gadgets", "organize",
-        "tech", "budget", "phone", "smarthome", "wfh"
-    ]
+    VALID_NICHES = ["home", "kitchen", "cozy", "gadgets", "organize", "tech", "budget", "phone", "smarthome", "wfh"]
     updated = 0
 
     for p in products:
-        name    = p.get("product_name", "")
+        name = p.get("product_name", "")
         keyword = p.get("keyword", "")
-        prompt = f"""You are a categorization expert. Product: {name}. Keyword: {keyword}. Available niches: {VALID_NICHES}. Choose SINGLE best exact match. Nothing else."""
+        prompt = f"Categorization expert. Product: {name}. Keyword: {keyword}. Available niches: {VALID_NICHES}. Choose SINGLE best exact match."
         try:
             niche = chat(prompt, temperature=0.1).strip().lower()
-            if niche not in VALID_NICHES:
-                niche = "home"
+            if niche not in VALID_NICHES: niche = "home"
             update_niche(name, niche)
             updated += 1
-            logger.info(f"🏷️ Niche set: {name[:60]} → {niche}")
+            logger.info(f"🏷️ Niche set: {name[:40]}... → {niche}")
             time.sleep(2.5) # Protects Google Sheets API quota
         except Exception as e:
             logger.error(f"❌ Niche detect failed: {name[:30]} — {e}")
@@ -70,56 +61,69 @@ def fill_missing_niches() -> dict:
 
 @tool
 def analyze_niche_stock() -> dict:
-    """
-    AI selects a specific sub-niche (board) to post to today based on the triggered account.
-    Checks if that specific board has enough stock.
-    Call ONCE after filling niches.
-    """
     global CURRENT_TRIGGER
     if CURRENT_TRIGGER in ["manual-account1", "scheduled-account1"]:
         allowed_niches = ["home", "kitchen", "cozy", "gadgets", "organize"]
     else:
         allowed_niches = ["tech", "budget", "phone", "smarthome", "wfh"]
 
+    total_pending = count_pending()
+    pending_all = get_pending_products(limit=200, allowed_niches=allowed_niches)
+    stock_map = {n: 0 for n in allowed_niches}
+    for p in pending_all:
+        stock_map[p.get("niche")] += 1
+
+    # 🔥 GUARD: 150 Limit Set Here
+    if total_pending > 150:
+        available_niches = [n for n, count in stock_map.items() if count > 0]
+        if available_niches:
+            chosen_niche = random.choice(available_niches)
+            logger.info(f"🛑 Sheet limit reached ({total_pending} items)! Forcing AI to use existing stock from: '{chosen_niche}'")
+            return {"selected_niche": chosen_niche, "stock_count": stock_map[chosen_niche], "needs_fetching": False}
+
     chosen_niche = random.choice(allowed_niches)
-    pending = get_pending_products(limit=50, allowed_niches=[chosen_niche])
-    count = len(pending)
+    count = stock_map[chosen_niche]
     
-    logger.info(f"🎯 AI Selected Board Niche: '{chosen_niche}' | Stock: {count}")
+    logger.info(f"🎯 AI Selected Board Niche: '{chosen_niche}' | Stock: {count} | Total Sheet: {total_pending}")
     return {"selected_niche": chosen_niche, "stock_count": count, "needs_fetching": count == 0}
 
 @tool
 async def fetch_aliexpress_products(niche: str) -> dict:
-    """
-    Fetch trending AliExpress products strictly for the selected niche.
-    Call ONCE only if analyze_niche_stock says needs_fetching is true.
-    """
     niche_keywords = KEYWORDS_BY_NICHE.get(niche, DEFAULT_KEYWORDS)
-    keyword = random.choice(niche_keywords) if niche_keywords else "trending"
-
-    logger.info(f"🛒 Stock empty! Fetching new products for: '{niche}' (Keyword: {keyword})")
-    raw = await search_products(keyword=keyword, max_results=20, niche=niche)
-    if not raw: 
-        return {"approved": 0, "fetched": 0, "error": "AliExpress returned 0 products. Do NOT retry."}
-
-    linked   = [enrich_with_affiliate_link(p) for p in raw]
-    approved = [p for p in linked if filter_product(p)]
-    if approved: save_products(approved)
     
-    return {"keyword": keyword, "niche": niche, "fetched": len(raw), "approved": len(approved)}
+    # 🔥 FIX: 3-Keyword Fallback System
+    max_attempts = min(3, len(niche_keywords)) if niche_keywords else 1
+    keywords_to_try = random.sample(niche_keywords, max_attempts) if niche_keywords else [f"best {niche} products 2026"]
+    
+    for attempt, keyword in enumerate(keywords_to_try, 1):
+        logger.info(f"🛒 [Attempt {attempt}/{max_attempts}] Fetching for '{niche}' (Keyword: {keyword})")
+        
+        raw = await search_products(keyword=keyword, max_results=20, niche=niche)
+        if not raw:
+            logger.warning(f"⚠️ 0 products found for '{keyword}'. Trying next...")
+            continue
+            
+        linked   = [enrich_with_affiliate_link(p) for p in raw]
+        approved = [p for p in linked if filter_product(p)]
+        
+        if approved:
+            # 🔥 Fix: Force Correct Tag before saving
+            for p in approved: p["niche"] = niche
+            save_products(approved)
+            logger.info(f"✅ Success! Saved {len(approved)} products on attempt {attempt}.")
+            return {"keyword": keyword, "niche": niche, "fetched": len(raw), "approved": len(approved)}
+        else:
+            logger.warning(f"⚠️ AI rejected all products for '{keyword}'. Trying next...")
+
+    return {"approved": 0, "fetched": 0, "error": "Failed after 3 keyword attempts."}
 
 @tool
 async def publish_next_pin(niche: str) -> dict:
-    """
-    Get next PENDING product for the specific niche, generate viral copy, and publish.
-    Call ONCE.
-    """
     global CURRENT_TRIGGER
     target_account = "Account1_HomeDecor" if "account1" in str(CURRENT_TRIGGER) else "Account2_Tech"
 
     pending = get_pending_products(limit=1, allowed_niches=[niche])
-    if not pending:
-        return {"success": False, "reason": f"Still no products for niche: {niche}"}
+    if not pending: return {"success": False, "reason": f"No products for niche: {niche}"}
 
     product = pending[0]
     name    = product.get("product_name", "Unknown")
@@ -151,88 +155,40 @@ async def publish_next_pin(niche: str) -> dict:
 
 ALL_TOOLS = [fill_missing_niches, analyze_niche_stock, fetch_aliexpress_products, publish_next_pin]
 
-llm = ChatGroq(api_key=GROQ_API_KEY, model=GROQ_MODEL, temperature=0.1).bind_tools(ALL_TOOLS)
+# 🔥 CEREBRAS FALLBACK SETUP 🔥
+primary_llm = ChatGroq(api_key=GROQ_API_KEY, model=GROQ_MODEL, temperature=0.1).bind_tools(ALL_TOOLS)
+fallback_llm = ChatOpenAI(api_key=CEREBRAS_API_KEY, base_url="https://api.cerebras.ai/v1", model=CEREBRAS_MODEL, temperature=0.1).bind_tools(ALL_TOOLS)
 
+# Agar Groq 429 Limit marega, toh ye automatically Cerebras pe shift ho jayega!
+llm = primary_llm.with_fallbacks([fallback_llm])
 
-# 🔥 TUMHARA ELITE SYSTEM PROMPT (UPDATED FOR NEW LOGIC) 🔥
-SYSTEM_PROMPT = f"""You are PINTERESTO — an elite autonomous Pinterest affiliate marketing bot engineered for maximum revenue generation. You manage {len(PINTEREST_ACCOUNTS)} Pinterest business accounts.
-
-You think like a Senior Growth Hacker + Affiliate Marketing Director with 10+ years experience. Every decision you make is calculated, efficient, and revenue-focused. You do not guess. You do not retry. You do not loop.
-
+SYSTEM_PROMPT = f"""You are PINTERESTO — an elite autonomous Pinterest affiliate marketing bot.
 ═══════════════════════════════════════
 EXECUTION PROTOCOL — FOLLOW EXACTLY
 ═══════════════════════════════════════
-
 STEP 1 → fill_missing_niches()
-- Call ONCE at the start of every run.
-- Ensures every product in sheet has correct niche mapping.
-
 STEP 2 → analyze_niche_stock()
-- Call ONCE.
-- AI will select a target board (niche) and check its inventory.
-- Returns 'selected_niche' and a boolean 'needs_fetching'.
-
 STEP 3 → fetch_aliexpress_products(niche="<selected_niche>") [ONLY if needs_fetching=true]
-- Call ONCE using the exact niche returned from Step 2.
-- If it returns 0 approved or an error → STOP immediately, go to END. Do NOT retry.
-
 STEP 4 → publish_next_pin(niche="<selected_niche>")
-- Call ONCE using the exact niche returned from Step 2.
-- Posts to correct board via Make.com webhook.
-- Marks product as POSTED in sheet.
-
 STEP 5 → END
-- Write summary in exact format below.
-- Stop all execution.
-
-═══════════════════════════════════════
-HARD RULES — NEVER VIOLATE
-═══════════════════════════════════════
-❌ NEVER call any single tool more than once per run.
-❌ NEVER retry on empty results or errors.
-❌ NEVER loop back after a failure.
-❌ NEVER invent product data.
-❌ NEVER skip the summary — always end with exact format.
-
-═══════════════════════════════════════
-DECISION LOGIC
-═══════════════════════════════════════
-IF analyze_niche_stock returns needs_fetching=false:
-  → Skip Step 3, go directly to Step 4.
-
-IF fetch returns approved=0:
-  → Skip Step 4, go directly to END with Status: Partial.
-
-IF publish returns success=false:
-  → Log reason, go to END with Status: Partial.
-
-═══════════════════════════════════════
-MANDATORY END FORMAT
-═══════════════════════════════════════
-NICHES FILLED: [X products updated] OR "None needed"
+MANDATORY END FORMAT:
+NICHES FILLED: [X products updated]
 TARGET BOARD: "[selected_niche]"
-FETCHED: [X approved] via "[keyword]" OR "Skipped — stock sufficient" OR "Failed"
-POSTED: "[product title]" → [niche] board OR "Skipped" OR "Failed — [reason]"
+FETCHED: [X approved] via "[keyword]" OR "Skipped" OR "Failed"
+POSTED: "[product title]" → [niche] board OR "Failed"
 STATUS: Success / Partial / Failed"""
-
 
 async def agent_node(state: BotState) -> dict:
     if len(state["messages"]) > 14:
-        logger.warning("⚠️ Max messages reached — forcing END")
         from langchain_core.messages import AIMessage
-        return {"messages": [AIMessage(
-            content="NICHES FILLED: Unknown\nTARGET BOARD: Unknown\nFETCHED: Unknown\nPOSTED: Stopped — loop guard triggered\nSTATUS: Failed"
-        )]}
+        return {"messages": [AIMessage(content="NICHES FILLED: Unknown\nTARGET BOARD: Unknown\nFETCHED: Unknown\nPOSTED: Stopped — loop guard\nSTATUS: Failed")]}
     logger.info(f"🧠 Agent thinking... ({len(state['messages'])} messages)")
     response = await llm.ainvoke(state["messages"])
-    logger.info(f"🔧 Tool calls: {len(response.tool_calls) if hasattr(response, 'tool_calls') else 0}")
     return {"messages": [response]}
 
 def should_continue(state: BotState) -> str:
-    last      = state["messages"][-1]
-    has_tools = hasattr(last, "tool_calls") and len(last.tool_calls) > 0
-    logger.info(f"🔀 Routing → {'tools' if has_tools else 'END'}")
-    return "tools" if has_tools else END
+    last = state["messages"][-1]
+    return "tools" if hasattr(last, "tool_calls") and len(last.tool_calls) > 0 else END
 
 def build_agent():
     g = StateGraph(BotState)
@@ -247,12 +203,9 @@ async def run_agent(trigger: str = "scheduled") -> dict:
     global CURRENT_TRIGGER
     CURRENT_TRIGGER = trigger
     logger.info(f"🤖 Agent started — {trigger}")
-    agent       = build_agent()
+    agent = build_agent()
     final_state = await agent.ainvoke({
-        "messages": [
-            SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(content=f"Run Pinterest bot cycle. Trigger: {trigger}"),
-        ],
+        "messages": [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=f"Run cycle. Trigger: {trigger}")],
         "posted_count": 0, "refilled": False, "errors": [],
     })
     summary = getattr(final_state["messages"][-1], "content", "Done")
