@@ -1,56 +1,49 @@
 import httpx
 import logging
-from config import MAKE_WEBHOOK_URL, PINTEREST_BOARD
+from config import get_next_account
 
 logger = logging.getLogger(__name__)
 
-# ─────────────────────────────────────────
-# Make.com Scenario expected input:
-# {
-#   "image_url": "https://...",
-#   "title":     "Pin title",
-#   "caption":   "Description + #tags",
-#   "link":      "https://affiliate.link",
-#   "board":     "Board Name"
-# }
-# ─────────────────────────────────────────
 
 async def post_to_pinterest(
     image_url: str,
     title: str,
     description: str,
     link: str,
-    tags: list
+    tags: list,
+    niche: str = "default"
 ) -> bool:
-    """Send pin to Make.com webhook → Pinterest"""
-    
+    """
+    Round robin account rotation + niche-based dynamic board selection.
+    Sends pin to Make.com webhook → Pinterest.
+    """
+    account  = get_next_account()
+    board_id = account["boards"].get(niche, account["boards"]["default"])
+
     hashtags = " ".join([f"#{t.strip()}" for t in tags])
-    caption = f"{description}\n\n{hashtags}"
+    caption  = f"{description}\n\n{hashtags}"
 
     payload = {
         "image_url": image_url,
-        "title": title[:100],
-        "caption": caption[:500],
-        "link": link,
-        "board": PINTEREST_BOARD
+        "title":     title[:100],
+        "caption":   caption[:500],
+        "link":      link,
+        "board_id":  board_id,
     }
+
+    logger.info(f"📌 [{account['name']}] Niche: {niche} → Board ID: {board_id}")
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(MAKE_WEBHOOK_URL, json=payload)
+            r = await client.post(account["webhook_url"], json=payload)
 
-        if response.status_code == 200:
-            logger.info(f"📌 Posted to Pinterest: {title[:50]}")
+        if r.status_code == 200:
+            logger.info(f"✅ [{account['name']}] Posted: {title[:50]}")
             return True
         else:
-            logger.error(f"❌ Make.com error {response.status_code}: {response.text}")
+            logger.error(f"❌ [{account['name']}] Error {r.status_code}: {r.text}")
             return False
 
     except Exception as e:
-        logger.error(f"❌ Webhook failed: {e}")
+        logger.error(f"❌ [{account['name']}] Webhook failed: {e}")
         return False
-
-# ─────────────────────────────────────────
-# FUTURE: Add post_to_instagram(), post_to_telegram()
-# for Level 3 multi-platform blast
-# ─────────────────────────────────────────
