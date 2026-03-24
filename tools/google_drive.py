@@ -11,115 +11,85 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-# Connection cache — ek baar connect, baar baar use karo
 _sheet_cache = None
-
 
 def _get_sheet():
     global _sheet_cache
     if _sheet_cache is not None:
-        return _sheet_cache  # Cache se lo — no extra API call ✅
+        return _sheet_cache 
     try:
-        try:
-            creds_dict = json.loads(GOOGLE_CREDS_JSON)
-        except Exception as json_err:
-            logger.exception("❌ GOOGLE_CREDS_JSON format galat hai.")
-            raise json_err
-
-        creds        = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-        client       = gspread.authorize(creds)
+        creds_dict = json.loads(GOOGLE_CREDS_JSON)
+        creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+        client = gspread.authorize(creds)
         _sheet_cache = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
         logger.info("✅ Sheet connected")
         return _sheet_cache
-
     except Exception as e:
         logger.exception("❌ Sheet connection failed:")
         raise
 
-
-def get_pending_products(limit: int = 2) -> list:
+# 🔥 FIX: Multi-Niche list filtering support
+def get_pending_products(limit: int = 2, allowed_niches: list = None) -> list:
     sheet   = _get_sheet()
     records = sheet.get_all_records()
     pending = [r for r in records if r.get("Status") == "PENDING"]
-    logger.info(f"📋 Found {len(pending)} pending products")
+    
+    if allowed_niches:
+        pending = [r for r in pending if r.get("niche") in allowed_niches]
+        
+    logger.info(f"📋 Found {len(pending)} pending products" + (f" for: {allowed_niches}" if allowed_niches else ""))
     return pending[:limit]
 
-
 def mark_as_posted(product_name: str) -> bool:
-    sheet      = _get_sheet()
-    records    = sheet.get_all_records()
-    headers    = sheet.row_values(1)
+    sheet = _get_sheet()
+    records = sheet.get_all_records()
+    headers = sheet.row_values(1)
     status_col = headers.index("Status") + 1
     for i, record in enumerate(records, start=2):
         if record.get("product_name") == product_name:
             sheet.update_cell(i, status_col, "POSTED")
-            logger.info(f"✅ Marked POSTED: {product_name}")
+            logger.info(f"✅ Marked POSTED: {product_name[:30]}...")
             return True
     return False
 
-
 def save_products(products: list) -> None:
-    if not products:
-        return
+    if not products: return
     sheet = _get_sheet()
-
-    # Saari rows pehle prepare karo
     rows = []
     for p in products:
         rows.append([
-            p.get("product_name",   ""),
-            p.get("product_id",     ""),
-            p.get("sale_price",     ""),
-            p.get("rating",         ""),
-            p.get("orders",         ""),
-            p.get("affiliate_link", ""),
-            p.get("image_url",      ""),
-            p.get("keyword",        ""),
-            p.get("niche",          "home"),
-            "PENDING"
+            p.get("product_name", ""), p.get("product_id", ""), p.get("sale_price", ""),
+            p.get("rating", ""), p.get("orders", ""), p.get("affiliate_link", ""),
+            p.get("image_url", ""), p.get("keyword", ""), p.get("niche", "home"), "PENDING"
         ])
-
-    # Ek saath insert — sirf 1 API call ✅
     sheet.append_rows(rows, value_input_option="RAW")
     logger.info(f"💾 Saved {len(rows)} products in 1 API call ✅")
 
-
 def count_pending() -> int:
-    sheet   = _get_sheet()
+    sheet = _get_sheet()
     records = sheet.get_all_records()
-    count   = sum(1 for r in records if r.get("Status") == "PENDING")
-    logger.info(f"📊 Pending count: {count}")
+    count = sum(1 for r in records if r.get("Status") == "PENDING")
     return count
-
 
 def get_all_products() -> list:
     sheet = _get_sheet()
     return sheet.get_all_records()
 
-
 def get_products_without_niche() -> list:
-    """Niche column empty wale products fetch karo"""
-    sheet   = _get_sheet()
+    sheet = _get_sheet()
     records = sheet.get_all_records()
-    empty   = [r for r in records if not str(r.get("niche", "")).strip()]
-    logger.info(f"📋 {len(empty)} products missing niche")
+    empty = [r for r in records if not str(r.get("niche", "")).strip()]
     return empty
 
-
 def update_niche(product_name: str, niche: str) -> bool:
-    """Product ki niche update karo sheet mein"""
-    sheet   = _get_sheet()
+    sheet = _get_sheet()
     records = sheet.get_all_records()
     headers = sheet.row_values(1)
-
-    if "niche" not in headers:
-        logger.error("❌ 'niche' column sheet mein nahi hai — pehle manually add karo!")
-        return False
-
+    if "niche" not in headers: return False
     niche_col = headers.index("niche") + 1
     for i, record in enumerate(records, start=2):
         if record.get("product_name") == product_name:
             sheet.update_cell(i, niche_col, niche)
-            logger.info(f"✅ Niche updated: {product_name} → {niche}")
+            logger.info(f"✅ Niche updated: {product_name[:30]}... → {niche}")
             return True
     return False
