@@ -11,55 +11,97 @@ HEADERS  = {
 
 # ── Niche-Based Keywords ────────────────────────────────────
 KEYWORDS_BY_NICHE = {
+    # 🏠 ACCOUNT 1 BOARDS (Home Decor & Lifestyle)
     "home": [
-        "home gadgets 2025",
-        "kitchen tools viral",
-        "led strip lights",
-        "desk accessories aesthetic",
-        "smart home devices",
-        "home organization",
-        "room decor gadgets",
-        "kitchen gadgets under 20",
+        "aesthetic room decor",
+        "amazon home finds 2026",
+        "nordic home decor",
+        "led room lighting aesthetic",
+        "minimalist home accessories",
+        "cute room decor viral"
     ],
+    "kitchen": [
+        "smart kitchen gadgets",
+        "viral kitchen tools",
+        "aesthetic kitchen accessories",
+        "time saving kitchen hacks",
+        "kitchen organization tools",
+        "pastel kitchen gadgets"
+    ],
+    "cozy": [
+        "cozy bedroom aesthetic",
+        "warm night light",
+        "fluffy room decor",
+        "reading nook accessories",
+        "ambient room lighting",
+        "kawaii room decor"
+    ],
+    "gadgets": [
+        "cool home gadgets viral",
+        "problem solving gadgets",
+        "smart home tech finds",
+        "tiktok made me buy it home",
+        "lazy home gadgets",
+        "cleaning gadgets hacks"
+    ],
+    "organize": [
+        "aesthetic storage box",
+        "acrylic makeup organizer",
+        "closet organization tools",
+        "cable management aesthetic",
+        "bathroom space saver",
+        "fridge organization containers"
+    ],
+
+    # 💻 ACCOUNT 2 BOARDS (Tech & Gadgets)
     "tech": [
-        "phone accessories 2025",
-        "portable charger",
-        "smart watch budget",
-        "wireless earbuds",
-        "phone camera lens",
-        "usb gadgets",
-        "laptop accessories",
-        "mini projector",
+        "aesthetic desk setup",
+        "gaming setup accessories",
+        "cool tech gadgets 2026",
+        "cyberpunk desk accessories",
+        "futuristic tech gadgets",
+        "laptop accessories aesthetic"
     ],
-    "fashion": [
-        "aesthetic accessories",
-        "minimalist jewelry",
-        "hair accessories viral",
-        "trendy bags",
-        "sunglasses 2025",
-        "fashion accessories women",
+    "budget": [
+        "cool gadgets under 10",
+        "cheap tech finds",
+        "useful gadgets under 20",
+        "mini tech gadgets",
+        "budget gaming accessories",
+        "pocket gadgets"
     ],
-    "fitness": [
-        "fitness equipment home",
-        "gym accessories",
-        "portable massager",
-        "resistance bands",
-        "workout gadgets",
-        "yoga accessories",
+    "phone": [
+        "cute iphone cases",
+        "magsafe accessories aesthetic",
+        "viral phone charms",
+        "phone camera lens kit",
+        "aesthetic phone stand",
+        "power bank aesthetic"
     ],
-    "beauty": [
-        "beauty products viral",
-        "skincare tools",
-        "face massager",
-        "nail art kit",
-        "makeup organizer",
-        "gua sha stone",
+    "smarthome": [
+        "smart rgb led strip",
+        "smart home automation",
+        "voice control lights",
+        "smart desk lamp",
+        "galaxy projector light",
+        "smart sensor gadgets"
     ],
+    "wfh": [
+        "work from home desk setup",
+        "ergonomic desk accessories",
+        "ipad accessories aesthetic",
+        "productivity gadgets",
+        "wireless mechanical keyboard",
+        "desk mat aesthetic"
+    ]
 }
 
-# Flat list — backward compatible
-DEFAULT_KEYWORDS = [kw for kws in KEYWORDS_BY_NICHE.values() for kw in kws]
-
+# Master Fallback List (Agar koi error aaye)
+DEFAULT_KEYWORDS = [
+    "tiktok viral finds 2026", 
+    "aesthetic must haves", 
+    "cool gadgets 2026"
+]
 
 async def search_products(
     keyword: str    = "",
