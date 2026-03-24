@@ -27,8 +27,6 @@ header{display:flex;align-items:center;justify-content:space-between;margin-bott
 @media(min-width:600px){.stats-grid{grid-template-columns:repeat(4,1fr)}}
 .stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1.2rem;position:relative;overflow:hidden;transition:border-color 0.2s}
 .stat-card:hover{border-color:var(--accent)}
-.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),var(--accent2));opacity:0;transition:opacity 0.2s}
-.stat-card:hover::before{opacity:1}
 .stat-label{font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:0.5rem}
 .stat-value{font-size:2rem;font-weight:800;line-height:1}
 .stat-value.green{color:var(--green)}.stat-value.accent{color:var(--accent)}.stat-value.orange{color:var(--accent2)}.stat-value.blue{color:var(--blue)}
@@ -36,9 +34,12 @@ header{display:flex;align-items:center;justify-content:space-between;margin-bott
 /* Section Title */
 .section-title{font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted)}
 
-/* Cards */
+/* Cards & Controls */
 .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:1.5rem;margin-bottom:1.2rem}
 .card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.2rem}
+.control-group{margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px dashed var(--border);}
+.control-group:last-child{border-bottom: none; margin-bottom: 0; padding-bottom: 0;}
+.control-group-title{font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:var(--muted);margin-bottom:0.8rem;text-transform:uppercase;}
 
 /* Status Badge */
 .agent-status{font-family:'JetBrains Mono',monospace;font-size:0.72rem;padding:0.25rem 0.7rem;border-radius:20px;font-weight:600}
@@ -46,106 +47,53 @@ header{display:flex;align-items:center;justify-content:space-between;margin-bott
 .agent-status.running{background:rgba(244,162,97,0.1);color:var(--accent2);border:1px solid rgba(244,162,97,0.3);animation:blink 1.5s infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0.5}}
 
-/* Action Label */
-.action-label{font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--blue);margin-bottom:1rem}
-
 /* Buttons */
 .btn{border:none;border-radius:10px;font-family:'Syne',sans-serif;font-weight:700;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:0.5rem}
 .btn:disabled{opacity:0.45;cursor:not-allowed;transform:none!important;box-shadow:none!important}
-
 .btn-full{width:100%;padding:1rem;font-size:1rem;background:var(--accent);color:#fff;margin-bottom:0.8rem}
 .btn-full:hover:not(:disabled){background:#c1121f;transform:translateY(-1px);box-shadow:0 8px 24px rgba(230,57,70,0.35)}
-
 .btn-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;margin-bottom:0.8rem}
 .btn-account1{padding:0.85rem;font-size:0.88rem;background:rgba(76,201,240,0.12);color:var(--blue);border:1px solid rgba(76,201,240,0.25)}
 .btn-account1:hover:not(:disabled){background:rgba(76,201,240,0.22);transform:translateY(-1px)}
 .btn-account2{padding:0.85rem;font-size:0.88rem;background:rgba(155,93,229,0.12);color:var(--purple);border:1px solid rgba(155,93,229,0.25)}
 .btn-account2:hover:not(:disabled){background:rgba(155,93,229,0.22);transform:translateY(-1px)}
-
-.btn-row{display:grid;grid-template-columns:1fr 1fr;gap:0.8rem}
 .btn-sm{padding:0.75rem;font-size:0.82rem}
 .btn-fetch{background:rgba(244,162,97,0.12);color:var(--accent2);border:1px solid rgba(244,162,97,0.25)}
-.btn-fetch:hover:not(:disabled){background:rgba(244,162,97,0.22);transform:translateY(-1px)}
+.btn-fetch:hover:not(:disabled){background:rgba(244,162,97,0.22)}
 .btn-publish{background:rgba(45,198,83,0.12);color:var(--green);border:1px solid rgba(45,198,83,0.25)}
-.btn-publish:hover:not(:disabled){background:rgba(45,198,83,0.22);transform:translateY(-1px)}
-.btn-niches{background:rgba(230,57,70,0.12);color:var(--accent);border:1px solid rgba(230,57,70,0.25)}
-.btn-niches:hover:not(:disabled){background:rgba(230,57,70,0.22);transform:translateY(-1px)}
-
-/* Summary */
-.summary-box{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:0.8rem 1rem;font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:var(--muted);line-height:1.7;min-height:50px;word-break:break-word;white-space:pre-wrap}
-.summary-box.success{color:var(--green)}.summary-box.error{color:var(--accent)}
-
-/* Schedule */
-.schedule-row{display:flex;gap:0.8rem;margin-bottom:1.2rem}
-.schedule-pill{flex:1;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:0.9rem 1rem;text-align:center}
-.schedule-time{font-size:1.3rem;font-weight:800;color:var(--accent2);margin-bottom:0.2rem}
-.schedule-label{font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
-
-/* Accounts Info */
-.accounts-row{display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;margin-bottom:1.2rem}
-.account-pill{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:0.9rem 1rem}
-.account-name{font-size:0.8rem;font-weight:700;margin-bottom:0.3rem}
-.account-name.blue{color:var(--blue)}.account-name.purple{color:var(--purple)}
-.account-niche{font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+.btn-publish:hover:not(:disabled){background:rgba(45,198,83,0.22)}
 
 /* Products */
-.products-card{background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:1.2rem}
-.products-header{display:flex;align-items:center;justify-content:space-between;padding:1.2rem 1.5rem;border-bottom:1px solid var(--border)}
-.btn-refresh{background:transparent;border:1px solid var(--border);color:var(--muted);padding:0.35rem 0.8rem;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:0.7rem;cursor:pointer;transition:all 0.2s}
-.btn-refresh:hover{border-color:var(--accent);color:var(--accent)}
 .products-list{max-height:380px;overflow-y:auto}
 .products-list::-webkit-scrollbar{width:4px}
 .products-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
-.product-row{display:flex;align-items:center;gap:1rem;padding:0.9rem 1.5rem;border-bottom:1px solid var(--border);transition:background 0.15s;animation:fadeIn 0.3s ease}
-@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
-.product-row:hover{background:rgba(255,255,255,0.02)}
-.product-row:last-child{border-bottom:none}
+.product-row{display:flex;align-items:center;gap:1rem;padding:0.9rem 1.5rem;border-bottom:1px solid var(--border)}
 .product-img{width:40px;height:40px;border-radius:6px;object-fit:cover;background:var(--border);flex-shrink:0}
 .product-info{flex:1;min-width:0}
 .product-name{font-size:0.82rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:0.2rem}
 .product-meta{font-family:'JetBrains Mono',monospace;font-size:0.63rem;color:var(--muted)}
-.product-badges{display:flex;gap:0.4rem;align-items:center;flex-shrink:0}
 .status-badge{font-family:'JetBrains Mono',monospace;font-size:0.6rem;font-weight:600;padding:0.2rem 0.55rem;border-radius:20px}
 .status-PENDING{background:rgba(244,162,97,0.1);color:var(--accent2);border:1px solid rgba(244,162,97,0.25)}
 .status-POSTED{background:rgba(45,198,83,0.1);color:var(--green);border:1px solid rgba(45,198,83,0.25)}
-.niche-badge{font-family:'JetBrains Mono',monospace;font-size:0.58rem;font-weight:600;padding:0.2rem 0.5rem;border-radius:20px;background:rgba(76,201,240,0.08);color:var(--blue);border:1px solid rgba(76,201,240,0.2)}
-.empty-state{text-align:center;padding:3rem 1rem;font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:var(--muted)}
 
-/* Chat */
-.chat-messages{min-height:120px;max-height:260px;overflow-y:auto;margin-bottom:1rem;display:flex;flex-direction:column;gap:0.7rem}
-.chat-messages::-webkit-scrollbar{width:4px}
-.chat-messages::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
-.msg{padding:0.7rem 0.9rem;border-radius:10px;font-size:0.82rem;line-height:1.55;max-width:88%;word-break:break-word}
-.msg.user{background:var(--accent);color:#fff;align-self:flex-end;border-bottom-right-radius:3px}
-.msg.bot{background:var(--surface);border:1px solid var(--border);color:var(--text);align-self:flex-start;border-bottom-left-radius:3px;font-family:'JetBrains Mono',monospace;font-size:0.76rem}
-.chat-input-row{display:flex;gap:0.6rem}
-.chat-input{flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:0.65rem 0.9rem;font-family:'Syne',sans-serif;font-size:0.85rem;outline:none;transition:border-color 0.2s}
-.chat-input:focus{border-color:var(--accent)}
-.btn-send{padding:0.65rem 1.1rem;background:var(--accent);color:#fff;border:none;border-radius:8px;font-family:'Syne',sans-serif;font-weight:700;cursor:pointer;font-size:0.85rem;transition:all 0.2s}
-.btn-send:hover:not(:disabled){background:#c1121f}
-.btn-send:disabled{opacity:0.5;cursor:not-allowed}
-
-/* Spinner */
+/* Summary & Toast */
+.summary-box{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:0.8rem 1rem;font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:var(--muted);min-height:50px;}
+.summary-box.success{color:var(--green)}.summary-box.error{color:var(--accent)}
 .spinner{display:inline-block;width:13px;height:13px;border:2px solid rgba(255,255,255,0.25);border-top-color:#fff;border-radius:50%;animation:spin 0.6s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-.last-run{font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--muted);text-align:center;margin-top:0.5rem}
 .toast{position:fixed;bottom:1.5rem;right:1.5rem;background:var(--card);border:1px solid var(--border);color:var(--text);padding:0.7rem 1.2rem;border-radius:10px;font-family:'JetBrains Mono',monospace;font-size:0.75rem;z-index:999;transform:translateY(80px);opacity:0;transition:all 0.3s}
 .toast.show{transform:translateY(0);opacity:1}
 </style>
 </head>
 <body>
 <div class="wrap">
-
-  <!-- Header -->
   <header>
     <div class="logo">
-      <div class="logo-icon">📌</div>
-      <div class="logo-text">Pinter<span>esto</span></div>
+      <div class="logo-icon">📌</div><div class="logo-text">Pinter<span>esto</span></div>
     </div>
     <div class="live-badge"><div class="live-dot"></div>LIVE</div>
   </header>
 
-  <!-- Stats -->
   <div class="stats-grid">
     <div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value orange" id="stat-pending">—</div></div>
     <div class="stat-card"><div class="stat-label">Posted</div><div class="stat-value green" id="stat-posted">—</div></div>
@@ -153,220 +101,177 @@ header{display:flex;align-items:center;justify-content:space-between;margin-bott
     <div class="stat-card"><div class="stat-label">Today</div><div class="stat-value accent" id="stat-today">—</div></div>
   </div>
 
-  <!-- Accounts Info -->
-  <div class="accounts-row">
-    <div class="account-pill">
-      <div class="account-name blue">🏠 Account 1</div>
-      <div class="account-niche">Home Decor Niche</div>
-    </div>
-    <div class="account-pill">
-      <div class="account-name purple">💻 Account 2</div>
-      <div class="account-niche">Tech Gadgets Niche</div>
-    </div>
-  </div>
-
-  <!-- Schedule -->
-  <div class="schedule-row">
-    <div class="schedule-pill"><div class="schedule-time">9 AM</div><div class="schedule-label">Auto • Morning IST</div></div>
-    <div class="schedule-pill"><div class="schedule-time">6 PM</div><div class="schedule-label">Auto • Evening IST</div></div>
-  </div>
-
-  <!-- Controls -->
   <div class="card">
     <div class="card-header">
-      <div class="section-title">Bot Controls</div>
+      <div class="section-title">Operations Center</div>
       <div class="agent-status idle" id="agent-status-badge">IDLE</div>
     </div>
 
-    <!-- Action label -->
-    <div class="action-label" id="action-label">Last action: —</div>
-
-    <!-- Full run -->
-    <button class="btn btn-full" id="btn-run" onclick="apiCall('/api/run-agent','Full Agent Run')">
-      ▶ Run Full Agent (Both Accounts)
-    </button>
-
-    <!-- Per account -->
-    <div class="btn-grid">
-      <button class="btn btn-account1" id="btn-acc1" onclick="apiCall('/api/run-account1','Account 1 Pin')">
-        📌 Post — Account 1
-      </button>
-      <button class="btn btn-account2" id="btn-acc2" onclick="apiCall('/api/run-account2','Account 2 Pin')">
-        📌 Post — Account 2
+    <div class="control-group">
+      <div class="control-group-title">Master Control</div>
+      <button class="btn btn-full" id="btn-run" onclick="apiCall('api/run-agent', 'btn-run', 'Full Agent')">
+        ▶ Run Full Automation (Both Accounts)
       </button>
     </div>
 
-    <!-- Utility -->
-    <div class="btn-row">
-      <button class="btn btn-sm btn-fetch" id="btn-fetch" onclick="apiCall('/api/fetch-products','Fetch Products')">
-        🛒 Fetch Products
-      </button>
-      <button class="btn btn-sm btn-publish" id="btn-publish" onclick="apiCall('/api/publish-pin','Publish Pin')">
-        🚀 Publish Next Pin
-      </button>
-    </div>
-    <div style="margin-top:0.8rem">
-      <button class="btn btn-sm btn-niches" id="btn-niches" onclick="apiCall('/api/fill-niches','Fill Niches')" style="width:100%;padding:0.75rem">
-        🏷️ Fill Missing Niches (AI Auto-Detect)
-      </button>
+    <div class="control-group">
+      <div class="control-group-title">Individual Accounts Control</div>
+      <div class="btn-grid">
+        <button class="btn btn-account1" id="btn-acc1" onclick="apiCall('api/run-account1', 'btn-acc1', 'Account 1 Pin')">
+          🏠 Post Only — Account 1
+        </button>
+        <button class="btn btn-account2" id="btn-acc2" onclick="apiCall('api/run-account2', 'btn-acc2', 'Account 2 Pin')">
+          💻 Post Only — Account 2
+        </button>
+      </div>
     </div>
 
-    <!-- Summary -->
+    <div class="control-group">
+      <div class="control-group-title">Utilities</div>
+      <div class="btn-grid">
+        <button class="btn btn-sm btn-fetch" id="btn-fetch" onclick="apiCall('api/fetch-products', 'btn-fetch', 'Fetch Products')">
+          🛒 Fetch Products
+        </button>
+        <button class="btn btn-sm btn-publish" id="btn-publish" onclick="apiCall('api/fill-niches', 'btn-publish', 'Fill Niches')">
+          🏷️ Detect & Fill Niches
+        </button>
+      </div>
+    </div>
+
     <div style="margin-top:1rem">
-      <div class="stat-label" style="margin-bottom:0.5rem">Last Summary</div>
+      <div class="stat-label">Last Action: <span id="action-label" style="color:var(--blue)">—</span></div>
       <div class="summary-box" id="summary-box">Waiting for run...</div>
     </div>
   </div>
 
-  <!-- Products -->
-  <div class="products-card">
-    <div class="products-header">
-      <div class="section-title">Products Sheet</div>
-      <button class="btn-refresh" onclick="loadProducts()">↻ Refresh</button>
+  <div class="card" style="padding:0; overflow:hidden;">
+    <div class="card-header" style="padding:1.2rem 1.5rem; margin:0; border-bottom:1px solid var(--border);">
+      <div class="section-title">Products Pipeline</div>
+      <button style="background:transparent; border:1px solid var(--border); color:var(--muted); padding:0.35rem 0.8rem; border-radius:6px; cursor:pointer;" onclick="loadProducts()">↻ Refresh</button>
     </div>
     <div class="products-list" id="products-list">
-      <div class="empty-state">Loading products...</div>
+      <div style="text-align:center; padding:3rem; color:var(--muted); font-size:0.8rem;">Loading...</div>
     </div>
   </div>
-  <div class="last-run">Last run: <span id="last-run-time">—</span></div>
-
-  <!-- Chat -->
-  <div class="card" style="margin-top:1.2rem">
-    <div class="card-header">
-      <div class="section-title">Pinteresto AI</div>
-      <div style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--green)">● Online</div>
-    </div>
-    <div class="chat-messages" id="chat-messages">
-      <div class="msg bot">Hey! I'm Pinteresto AI 👋 Ask me anything about the bot, get content ideas, or check performance!</div>
-    </div>
-    <div class="chat-input-row">
-      <input class="chat-input" id="chat-input" placeholder="Ask anything..." onkeydown="if(event.key==='Enter')sendChat()">
-      <button class="btn-send" id="btn-send" onclick="sendChat()">Send</button>
-    </div>
-  </div>
-
 </div>
 
-<!-- Toast -->
 <div class="toast" id="toast"></div>
 
 <script>
+// 🔥 Safe HF Pathing: Automatically uses relative paths (no leading slash)
+const API_BASE = window.location.pathname.endsWith('/') ? '' : ''; 
+
+const ALL_BTNS = ['btn-run', 'btn-acc1', 'btn-acc2', 'btn-fetch', 'btn-publish'];
 let polling = null;
-let chatHistory = [];
-const ALL_BTNS = ['btn-run','btn-acc1','btn-acc2','btn-fetch','btn-publish','btn-niches'];
 
 function showToast(msg, color='var(--green)'){
   const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.style.borderColor = color;
+  t.textContent = msg; t.style.borderColor = color;
   t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'), 3000);
 }
 
 function setAllBtns(disabled){
-  ALL_BTNS.forEach(id=>{
+  ALL_BTNS.forEach(id => {
     const b = document.getElementById(id);
     if(b) b.disabled = disabled;
   });
 }
 
-async function apiCall(endpoint, label){
+// Fixed API Call Logic
+async function apiCall(endpoint, btnId, label){
   setAllBtns(true);
-  const btn = document.getElementById('btn-run');
+  const btn = document.getElementById(btnId);
+  const originalText = btn.innerHTML;
   btn.innerHTML = '<span class="spinner"></span> Running...';
-  try{
-    const r = await fetch(endpoint, {method:'POST'});
+  
+  try {
+    const r = await fetch(API_BASE + endpoint, { method: 'POST' });
     const d = await r.json();
+    
     if(d.status === 'busy'){
       showToast('⚠️ Agent already running!', 'var(--accent2)');
-      setAllBtns(false);
-      btn.innerHTML = '▶ Run Full Agent (Both Accounts)';
-      return;
+    } else {
+      showToast(`✅ ${label} started!`);
+      startPolling();
     }
-    showToast(`✅ ${label} started!`);
-    startPolling();
-  }catch(e){
-    showToast('❌ Failed to start', 'var(--accent)');
+  } catch(e) {
+    console.error("API Call Error:", e);
+    showToast('❌ Failed to communicate with server', 'var(--accent)');
+  } finally {
+    btn.innerHTML = originalText;
     setAllBtns(false);
-    btn.innerHTML = '▶ Run Full Agent (Both Accounts)';
   }
 }
 
 async function loadStats(){
-  try{
-    const r = await fetch('/api/stats');
+  try {
+    const r = await fetch(API_BASE + 'api/stats');
     const d = await r.json();
-    document.getElementById('stat-pending').textContent  = d.pending ?? '—';
-    document.getElementById('stat-posted').textContent   = d.posted  ?? '—';
-    document.getElementById('stat-total').textContent    = d.total   ?? '—';
-    document.getElementById('stat-today').textContent    = d.posted_today ?? '0';
-    document.getElementById('last-run-time').textContent = d.last_run || 'Never';
-    document.getElementById('action-label').textContent  = `Last action: ${d.last_action || '—'}`;
+    
+    document.getElementById('stat-pending').textContent = d.pending ?? '—';
+    document.getElementById('stat-posted').textContent  = d.posted ?? '—';
+    document.getElementById('stat-total').textContent   = d.total ?? '—';
+    document.getElementById('stat-today').textContent   = d.posted_today ?? '0';
+    document.getElementById('action-label').textContent = d.last_action || '—';
 
     const badge = document.getElementById('agent-status-badge');
-    const box   = document.getElementById('summary-box');
-    const btn   = document.getElementById('btn-run');
-
     if(d.running){
-      badge.textContent  = 'RUNNING...';
-      badge.className    = 'agent-status running';
-      btn.innerHTML      = '<span class="spinner"></span> Running...';
+      badge.textContent = 'RUNNING...';
+      badge.className = 'agent-status running';
       setAllBtns(true);
     } else {
       badge.textContent = 'IDLE';
-      badge.className   = 'agent-status idle';
-      btn.innerHTML     = '▶ Run Full Agent (Both Accounts)';
+      badge.className = 'agent-status idle';
       setAllBtns(false);
       stopPolling();
     }
 
+    const box = document.getElementById('summary-box');
     if(d.last_summary && d.last_summary !== 'Not run yet'){
       box.textContent = d.last_summary;
-      box.className   = d.last_summary.includes('Error') || d.last_summary.includes('Failed')
-        ? 'summary-box error' : 'summary-box success';
+      box.className = (d.last_summary.includes('Error') || d.last_summary.includes('Failed')) ? 'summary-box error' : 'summary-box success';
     }
-  }catch(e){console.error(e)}
-}
-
-async function loadProducts(){
-  try{
-    const r = await fetch('/api/products');
-    const d = await r.json();
-    const list = document.getElementById('products-list');
-    if(!d.products || d.products.length === 0){
-      list.innerHTML = '<div class="empty-state">No products yet.<br>Run the agent to fetch some.</div>';
-      return;
-    }
-    // Sort: PENDING first
-    const sorted = [...d.products].sort((a,b)=>{
-      if(a.Status === 'PENDING' && b.Status !== 'PENDING') return -1;
-      if(a.Status !== 'PENDING' && b.Status === 'PENDING') return 1;
-      return 0;
-    });
-    list.innerHTML = sorted.map((p,i) => `
-      <div class="product-row" style="animation-delay:${i*0.03}s">
-        <img class="product-img" src="${p.image_url||''}" onerror="this.style.background='#1e1e2e';this.src=''" alt="">
-        <div class="product-info">
-          <div class="product-name">${p.product_name||'Unknown'}</div>
-          <div class="product-meta">$${p.sale_price||'—'} &nbsp;·&nbsp; ⭐${p.rating||'—'} &nbsp;·&nbsp; ${p.keyword||''}</div>
-        </div>
-        <div class="product-badges">
-          ${p.niche ? `<div class="niche-badge">${p.niche}</div>` : ''}
-          <div class="status-badge status-${p.Status||'PENDING'}">${p.Status||'PENDING'}</div>
-        </div>
-      </div>`).join('');
-  }catch(e){
-    document.getElementById('products-list').innerHTML = '<div class="empty-state">Failed to load.</div>';
+  } catch(e) {
+    console.error("Stats Error:", e);
   }
 }
 
-async function sendChat(){
-  const input = document.getElementById('chat-input');
-  const msg   = input.value.trim();
-  if(!msg) return;
-  input.value = '';
+async function loadProducts(){
+  try {
+    const r = await fetch(API_BASE + 'api/products');
+    const d = await r.json();
+    const list = document.getElementById('products-list');
+    
+    if(!d.products || d.products.length === 0){
+      list.innerHTML = '<div style="text-align:center; padding:3rem; color:var(--muted); font-size:0.8rem;">No products yet.</div>';
+      return;
+    }
+    
+    const sorted = [...d.products].sort((a,b) => (a.Status === 'PENDING' ? -1 : 1));
+    list.innerHTML = sorted.map(p => `
+      <div class="product-row">
+        <img class="product-img" src="${p.image_url||''}" onerror="this.style.background='#1e1e2e';this.src=''" alt="">
+        <div class="product-info">
+          <div class="product-name">${p.product_name||'Unknown'}</div>
+          <div class="product-meta">$${p.sale_price||'—'} · ⭐${p.rating||'—'}</div>
+        </div>
+        <div class="status-badge status-${p.Status||'PENDING'}">${p.Status||'PENDING'}</div>
+      </div>
+    `).join('');
+  } catch(e) {
+    console.error("Products Error:", e);
+  }
+}
 
-  const box = document.getElementById('chat-messages');
-  box.innerHTML += `<div class="msg user">${msg}</div>`;
-  box.innerHTML += `<div class="msg bot" id="typing">...</div>`;
-  box.scrollT
+function startPolling(){ if(!polling) polling = setInterval(()=>{loadStats(); loadProducts();}, 3000); }
+function stopPolling(){ if(polling){ clearInterval(polling); polling=null; } }
+
+window.onload = () => {
+  loadStats();
+  loadProducts();
+  setInterval(loadStats, 30000);
+};
+</script>
+</body>
+</html>
