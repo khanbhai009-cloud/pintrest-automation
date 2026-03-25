@@ -23,6 +23,7 @@ from tools.admitad import enrich_with_affiliate_link
 from utils.image_processor import process_product_image
 from tools.llm import chat
 from config import GROQ_API_KEY, GROQ_MODEL, CEREBRAS_API_KEY, CEREBRAS_MODEL, PINTEREST_ACCOUNTS
+from tools.tavily_search import get_trending_keyword
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +184,7 @@ async def publish_next_pin(niche: str) -> dict:
         logger.error(f"❌ publish error: {e}")
         return {"success": False, "reason": str(e)}
 
-ALL_TOOLS = [fill_missing_niches, analyze_niche_stock, fetch_aliexpress_products, publish_next_pin]
+ALL_TOOLS = [fill_missing_niches, analyze_niche_stock, get_trending_keyword, fetch_aliexpress_products, publish_next_pin]
 
 # 🔥 CEREBRAS FALLBACK SETUP 🔥
 primary_llm = ChatGroq(api_key=GROQ_API_KEY, model=GROQ_MODEL, temperature=0.1).bind_tools(ALL_TOOLS)
@@ -200,24 +201,21 @@ You possess the mindset of a top-tier Growth Hacker with over 10 years of experi
 ═══════════════════════════════════════
 EXECUTION PROTOCOL — FOLLOW EXACTLY
 ═══════════════════════════════════════
-STEP 1 → fill_missing_niches()
+STEP 1 → CALL fill_missing_niches()
+STEP 2 → CALL analyze_niche_stock() (Note: Pay attention to 'selected_niche' and 'needs_fetching')
 
-STEP 2 → analyze_niche_stock()
-         Remember: selected_niche and needs_fetching values from this result.
+STEP 3 → TREND HIJACKING (CONDITIONAL)
+   - IF 'needs_fetching' is TRUE: CALL get_trending_keyword(niche="<selected_niche>"). Wait for the viral keyword.
+   - IF 'needs_fetching' is FALSE: SKIP THIS STEP ENTIRELY.
 
-STEP 3 → [CONDITIONAL FETCH]
-         IF needs_fetching = true:
-             Call fetch_aliexpress_products(niche="<selected_niche from STEP 2>")
-             CHECK the result carefully:
-               approved > 0  → Products saved. Continue to STEP 4.
-               approved = 0  → Fetch failed. STOP HERE. Do NOT call publish_next_pin. Report FETCHED: Failed. STATUS: Failed.
-         IF needs_fetching = false:
-             Skip fetch entirely. Proceed directly to STEP 4.
+STEP 4 → FETCH PRODUCTS (CONDITIONAL)
+   - IF you performed Step 3: CALL fetch_aliexpress_products(niche="<selected_niche>", keyword="<keyword_from_step_3>").
+   - IF you skipped Step 3: SKIP THIS STEP ENTIRELY.
 
-STEP 4 → publish_next_pin(niche="<selected_niche from STEP 2>")
-         CRITICAL: Use the EXACT niche string from STEP 2. Do NOT modify or guess.
+STEP 5 → PUBLISH
+   - CALL publish_next_pin(niche="<selected_niche>")
 
-STEP 5 → END
+STEP 6 → END
 
 MANDATORY END FORMAT:
 NICHES FILLED: [X products updated]
