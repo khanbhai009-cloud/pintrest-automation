@@ -11,6 +11,7 @@ SPREADSHEET_ID        = os.getenv("SPREADSHEET_ID")
 SHEET_NAME            = "Approved Deals"
 RAPIDAPI_KEY          = os.getenv("RAPIDAPI_KEY")
 ADMITAD_CAMPAIGN_CODE = os.getenv("ADMITAD_CAMPAIGN_CODE")
+TAVILY_API_KEY        = os.getenv("TAVILY_API_KEY")
 
 MIN_GRAVITY           = 50
 DAILY_POST_LIMIT      = 2   
