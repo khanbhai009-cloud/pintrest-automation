@@ -106,6 +106,9 @@ async def fetch_aliexpress_products(niche: str) -> dict:
     """
     Fetches trending products strictly for the selected niche with built-in fallback.
     Call ONCE only if analyze_niche_stock says needs_fetching is true.
+    IMPORTANT: Check the 'approved' field in the return value.
+    - approved > 0 → Products saved to sheet. Proceed to publish_next_pin with SAME niche.
+    - approved = 0 → Fetch failed. Do NOT call publish_next_pin. Report FETCHED: Failed and STOP.
     """
     niche_keywords = KEYWORDS_BY_NICHE.get(niche, DEFAULT_KEYWORDS)
     
@@ -140,7 +143,9 @@ async def fetch_aliexpress_products(niche: str) -> dict:
 async def publish_next_pin(niche: str) -> dict:
     """
     Get next PENDING product for the specific niche, generate viral copy, and publish.
-    Call ONCE.
+    Call ONCE. 
+    CRITICAL: The 'niche' parameter MUST be the EXACT same string returned by analyze_niche_stock's 'selected_niche' field.
+    Do NOT call this if fetch_aliexpress_products returned approved=0.
     """
     global CURRENT_TRIGGER
     target_account = "Account1_HomeDecor" if "account1" in str(CURRENT_TRIGGER) else "Account2_Tech"
@@ -196,16 +201,29 @@ You possess the mindset of a top-tier Growth Hacker with over 10 years of experi
 EXECUTION PROTOCOL — FOLLOW EXACTLY
 ═══════════════════════════════════════
 STEP 1 → fill_missing_niches()
+
 STEP 2 → analyze_niche_stock()
-STEP 3 → fetch_aliexpress_products(niche="<selected_niche>") [ONLY if needs_fetching=true]
-STEP 4 → publish_next_pin(niche="<selected_niche>")
+         Remember: selected_niche and needs_fetching values from this result.
+
+STEP 3 → [CONDITIONAL FETCH]
+         IF needs_fetching = true:
+             Call fetch_aliexpress_products(niche="<selected_niche from STEP 2>")
+             CHECK the result carefully:
+               approved > 0  → Products saved. Continue to STEP 4.
+               approved = 0  → Fetch failed. STOP HERE. Do NOT call publish_next_pin. Report FETCHED: Failed. STATUS: Failed.
+         IF needs_fetching = false:
+             Skip fetch entirely. Proceed directly to STEP 4.
+
+STEP 4 → publish_next_pin(niche="<selected_niche from STEP 2>")
+         CRITICAL: Use the EXACT niche string from STEP 2. Do NOT modify or guess.
+
 STEP 5 → END
 
 MANDATORY END FORMAT:
 NICHES FILLED: [X products updated]
 TARGET BOARD: "[selected_niche]"
-FETCHED: [X approved] via "[keyword]" OR "Skipped" OR "Failed"
-POSTED: "[product title]" → [niche] board OR "Failed"
+FETCHED: [X approved] via "[keyword]" OR "Skipped (stock existed)" OR "Failed (0 approved)"
+POSTED: "[product title]" to [niche] board OR "Failed"
 STATUS: Success / Partial / Failed"""
 
 async def agent_node(state: BotState) -> dict:
