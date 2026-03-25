@@ -102,7 +102,7 @@ def analyze_niche_stock() -> dict:
     logger.info(f"🎯 AI Selected Board Niche: '{chosen_niche}' | Stock: {count} | Total Sheet: {total_pending}")
     return {"selected_niche": chosen_niche, "stock_count": count, "needs_fetching": count == 0}
 
-@@tool
+@tool
 async def fetch_aliexpress_products(niche: str, keyword: str = "") -> dict:
     """
     Fetches trending products strictly for the selected niche.
