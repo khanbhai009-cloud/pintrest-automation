@@ -102,27 +102,30 @@ def analyze_niche_stock() -> dict:
     logger.info(f"🎯 AI Selected Board Niche: '{chosen_niche}' | Stock: {count} | Total Sheet: {total_pending}")
     return {"selected_niche": chosen_niche, "stock_count": count, "needs_fetching": count == 0}
 
-@tool
-async def fetch_aliexpress_products(niche: str) -> dict:
+@@tool
+async def fetch_aliexpress_products(niche: str, keyword: str = "") -> dict:
     """
-    Fetches trending products strictly for the selected niche with built-in fallback.
-    Call ONCE only if analyze_niche_stock says needs_fetching is true.
-    IMPORTANT: Check the 'approved' field in the return value.
-    - approved > 0 → Products saved to sheet. Proceed to publish_next_pin with SAME niche.
-    - approved = 0 → Fetch failed. Do NOT call publish_next_pin. Report FETCHED: Failed and STOP.
+    Fetches trending products strictly for the selected niche.
+    Requires 'keyword' fetched from Step 3 (Trend Hijacking).
     """
-    niche_keywords = KEYWORDS_BY_NICHE.get(niche, DEFAULT_KEYWORDS)
+    # 1. Tavily wala fresh keyword sabse pehle try karenge!
+    keywords_to_try = [keyword] if keyword else []
     
-    # 3-Keyword Fallback System
-    max_attempts = min(3, len(niche_keywords)) if niche_keywords else 1
-    keywords_to_try = random.sample(niche_keywords, max_attempts) if niche_keywords else [f"best {niche} products 2026"]
+    # 2. Safety (Fallback) ke liye purane hardcoded keywords bhi add kar lenge
+    # Agar kisi wajah se Tavily ka keyword fail hua, toh sheet khali nahi rahegi
+    fallback_list = KEYWORDS_BY_NICHE.get(niche, DEFAULT_KEYWORDS)
+    if fallback_list:
+        import random
+        keywords_to_try.extend(random.sample(fallback_list, min(2, len(fallback_list))))
     
-    for attempt, keyword in enumerate(keywords_to_try, 1):
-        logger.info(f"🛒 [Attempt {attempt}/{max_attempts}] Fetching for '{niche}' (Keyword: {keyword})")
+    for attempt, kw in enumerate(keywords_to_try, 1):
+        logger.info(f"🛒 [Attempt {attempt}/{len(keywords_to_try)}] Fetching for '{niche}' (Keyword: {kw})")
         
-        raw = await search_products(keyword=keyword, max_results=20, niche=niche)
+        # AliExpress API ko direct naya keyword bhej diya 🚀
+        raw = await search_products(keyword=kw, max_results=20, niche=niche)
+        
         if not raw:
-            logger.warning(f"⚠️ 0 products found for '{keyword}'. Trying next...")
+            logger.warning(f"⚠️ 0 products found for '{kw}'. Trying next...")
             continue
             
         linked   = [enrich_with_affiliate_link(p) for p in raw]
@@ -134,11 +137,11 @@ async def fetch_aliexpress_products(niche: str) -> dict:
                 p["niche"] = niche
             save_products(approved)
             logger.info(f"✅ Success! Saved {len(approved)} products on attempt {attempt}.")
-            return {"keyword": keyword, "niche": niche, "fetched": len(raw), "approved": len(approved)}
+            return {"keyword": kw, "niche": niche, "fetched": len(raw), "approved": len(approved)}
         else:
-            logger.warning(f"⚠️ AI rejected all products for '{keyword}'. Trying next...")
+            logger.warning(f"⚠️ AI rejected all products for '{kw}'. Trying next...")
 
-    return {"approved": 0, "fetched": 0, "error": "Failed after 3 keyword attempts."}
+    return {"approved": 0, "fetched": 0, "error": "Failed after all keyword attempts."}
 
 @tool
 async def publish_next_pin(niche: str) -> dict:
