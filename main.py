@@ -1,5 +1,6 @@
 import logging
-from datetime import datetime
+import random
+from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
@@ -8,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+# Tumhare custom imports
 from agent import run_agent, fill_missing_niches, fetch_aliexpress_products, publish_next_pin
 from tools.google_drive import get_all_products, save_products, count_pending
 from tools.llm import chat
@@ -20,34 +22,91 @@ state = {
     "running": False, "last_run": None,
     "posted_today": 0, "last_summary": "Not run yet", "last_action": "—",
 }
+
+# Scheduler timezone ke sath (IST set kar rakha hai)
 scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
 
 async def scheduled_job(trigger: str):
-    if state["running"]: return
+    """Core function jo bot ko chalayega"""
+    if state["running"]: 
+        logger.warning(f"⚠️ Agent is already running. Skipping {trigger}")
+        return
+        
     state["running"] = True
     state["last_run"] = datetime.now().strftime("%H:%M")
     try:
+        logger.info(f"🚀 Firing scheduled job: {trigger}")
         result = await run_agent(trigger=trigger)
         state["last_summary"] = result.get("summary", "")
         state["posted_today"] += 1
     except Exception as e:
         state["last_summary"] = f"Error: {e}"
+        logger.error(f"❌ Error in scheduled_job: {e}")
     finally:
         state["running"] = False
 
+def schedule_random_pins():
+    """Ye dono accounts ke liye daily 3-3 naye random times generate karega"""
+    now = datetime.now()
+    start_hour = 12  # Dopehar 12 baje se window shuru
+    window_minutes = 6 * 60  # 6 ghante ki window (6:00 PM tak)
+    
+    # Pehle purane random jobs clear karo taaki duplicate na bane
+    for job in scheduler.get_jobs():
+        if job.id and str(job.id).startswith("random_pin_"):
+            scheduler.remove_job(job.id)
+            
+    logger.info("🎲 Generating 3 Random pins for Account 1 AND 3 for Account 2...")
+
+    # 🟢 Account 1 ke liye 3 random pins
+    for i in range(3):
+        random_mins = random.randint(0, window_minutes)
+        run_time = now.replace(hour=start_hour, minute=0, second=0, microsecond=0) + timedelta(minutes=random_mins)
+        scheduler.add_job(
+            scheduled_job, "date", run_date=run_time, 
+            id=f"random_pin_acc1_{i}", kwargs={"trigger": "scheduled-account1"}
+        )
+        logger.info(f"📌 [Acc 1] Random Pin {i+1} Set: {run_time.strftime('%I:%M %p')}")
+
+    # 🔵 Account 2 ke liye 3 random pins
+    for i in range(3):
+        random_mins = random.randint(0, window_minutes)
+        run_time = now.replace(hour=start_hour, minute=0, second=0, microsecond=0) + timedelta(minutes=random_mins)
+        scheduler.add_job(
+            scheduled_job, "date", run_date=run_time, 
+            id=f"random_pin_acc2_{i}", kwargs={"trigger": "scheduled-account2"}
+        )
+        logger.info(f"📌 [Acc 2] Random Pin {i+1} Set: {run_time.strftime('%I:%M %p')}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Acc 1 -> 9 AM & 6 PM IST
-    scheduler.add_job(scheduled_job, "cron", hour=9,  minute=0, id="acc1_morning", kwargs={"trigger": "scheduled-account1"})
-    scheduler.add_job(scheduled_job, "cron", hour=18, minute=0, id="acc1_evening", kwargs={"trigger": "scheduled-account1"})
-    # Acc 2 -> 6 AM & 9 PM IST (21:00)
-    scheduler.add_job(scheduled_job, "cron", hour=6,  minute=0, id="acc2_morning", kwargs={"trigger": "scheduled-account2"})
-    scheduler.add_job(scheduled_job, "cron", hour=21, minute=0, id="acc2_night",   kwargs={"trigger": "scheduled-account2"})
+    # ---------------------------------------------------------
+    # 1️⃣ FIXED PINS (Har account ke liye 2 fixed time)
+    # ---------------------------------------------------------
+    # Account 1 Fixed: Subah 9:00 AM & Shaam 6:00 PM (18:00)
+    scheduler.add_job(scheduled_job, "cron", hour=9,  minute=0, id="acc1_fixed_1", kwargs={"trigger": "scheduled-account1"})
+    scheduler.add_job(scheduled_job, "cron", hour=18, minute=0, id="acc1_fixed_2", kwargs={"trigger": "scheduled-account1"})
+    
+    # Account 2 Fixed: Subah 10:00 AM & Raat 8:00 PM (20:00)
+    scheduler.add_job(scheduled_job, "cron", hour=10, minute=0, id="acc2_fixed_1", kwargs={"trigger": "scheduled-account2"})
+    scheduler.add_job(scheduled_job, "cron", hour=20, minute=0, id="acc2_fixed_2", kwargs={"trigger": "scheduled-account2"})
+    
+    # ---------------------------------------------------------
+    # 2️⃣ RANDOM PINS SETUP
+    # ---------------------------------------------------------
+    # Ye job daily subah 8 baje chalega aur dono accounts ke liye aaj ke random time decide karega
+    scheduler.add_job(schedule_random_pins, "cron", hour=8, minute=0, id="daily_randomizer_trigger")
+    
+    # Server start hote hi aaj ke liye random pins activate kar dete hain
+    schedule_random_pins()
+
     scheduler.start()
-    logger.info("✅ Scheduler active — Acc1: 9AM/6PM | Acc2: 6AM/9PM")
+    logger.info("✅ Master Scheduler Active — Har account pe 5 pins (2 Fixed + 3 Random) set ho chuki hain!")
     yield
     scheduler.shutdown()
 
+# FastAPI App setup
 app = FastAPI(title="Pinteresto Bot", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -126,13 +185,12 @@ async def trigger_fill_niches(background_tasks: BackgroundTasks):
 
 @app.post("/api/fetch-products")
 async def trigger_fetch(background_tasks: BackgroundTasks):
-    # Fetch will now be handled intelligently by bot, but this is a manual fallback
     if state["running"]: return {"status": "busy"}
     async def _run():
         state["running"] = True
         state["last_action"] = "Fetch Products"
         try:
-            result = await fetch_aliexpress_products.func(niche="home") # Defaulting to home for manual button
+            result = await fetch_aliexpress_products.func(niche="home")
             state["last_summary"] = f"Fetched: {result.get('approved',0)} approved"
         except Exception as e:
             state["last_summary"] = f"Fetch error: {e}"
@@ -158,4 +216,5 @@ async def ai_chat(msg: ChatMessage):
 
 if __name__ == "__main__":
     import uvicorn
+    # Terminal me run karke dekho, sidha start hoga aur dashboard live!
     uvicorn.run(app, host="0.0.0.0", port=7860)
