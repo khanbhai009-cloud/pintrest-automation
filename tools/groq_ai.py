@@ -66,7 +66,7 @@ TITLE RULES (CRITICAL for SEO):
 - Example style: "Genius Kitchen Gadget That Saves 30 Min Daily ✨"
 
 DESCRIPTION RULES:
-- Max 500 characters minimum 450 character with powerful seo of pinterest 
+- Max 500 characters with powerful seo of pinterest 
 - Open with the CORE BENEFIT & THE PRODUCT FEATURES 
 - Include 2-3 long-tail keywords naturally woven in
 - Add example how this product help you 
