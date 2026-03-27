@@ -10,7 +10,6 @@ GOOGLE_CREDS_JSON     = os.getenv("GOOGLE_CREDS_JSON")
 SPREADSHEET_ID        = os.getenv("SPREADSHEET_ID")
 SHEET_NAME            = "Approved Deals"
 RAPIDAPI_KEY          = os.getenv("RAPIDAPI_KEY")
-ADMITAD_CAMPAIGN_CODE = os.getenv("ADMITAD_CAMPAIGN_CODE")
 TAVILY_API_KEY        = os.getenv("TAVILY_API_KEY")
 AMAZON_STORE_ID       = "swiftmart0008-20"
 MIN_GRAVITY           = 50
