@@ -23,8 +23,8 @@ state = {
     "posted_today": 0, "last_summary": "Not run yet", "last_action": "—",
 }
 
-# Scheduler timezone ke sath (IST set kar rakha hai)
-scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
+# 🔥 SABSE BADA CHANGE: Timezone ab US Eastern Time (New York) ho gaya hai!
+scheduler = AsyncIOScheduler(timezone="America/New_York")
 
 async def scheduled_job(trigger: str):
     """Core function jo bot ko chalayega"""
@@ -35,7 +35,7 @@ async def scheduled_job(trigger: str):
     state["running"] = True
     state["last_run"] = datetime.now().strftime("%H:%M")
     try:
-        logger.info(f"🚀 Firing scheduled job: {trigger}")
+        logger.info(f"🚀 Firing scheduled job: {trigger} (US Time)")
         result = await run_agent(trigger=trigger)
         state["last_summary"] = result.get("summary", "")
         state["posted_today"] += 1
@@ -46,17 +46,17 @@ async def scheduled_job(trigger: str):
         state["running"] = False
 
 def schedule_random_pins():
-    """Ye dono accounts ke liye daily 3-3 naye random times generate karega"""
+    """US Prime Time (4 PM se 10 PM) ke beech random pins generate karega"""
     now = datetime.now()
-    start_hour = 12  # Dopehar 12 baje se window shuru
-    window_minutes = 6 * 60  # 6 ghante ki window (6:00 PM tak)
+    start_hour = 16  # US ke Dopehar 4:00 PM se window shuru
+    window_minutes = 6 * 60  # 6 ghante ki window (10:00 PM tak)
     
     # Pehle purane random jobs clear karo taaki duplicate na bane
     for job in scheduler.get_jobs():
         if job.id and str(job.id).startswith("random_pin_"):
             scheduler.remove_job(job.id)
             
-    logger.info("🎲 Generating 3 Random pins for Account 1 AND 3 for Account 2...")
+    logger.info("🎲 Generating 3 Random pins for Account 1 AND 3 for Account 2 in US Prime Time...")
 
     # 🟢 Account 1 ke liye 3 random pins
     for i in range(3):
@@ -66,7 +66,7 @@ def schedule_random_pins():
             scheduled_job, "date", run_date=run_time, 
             id=f"random_pin_acc1_{i}", kwargs={"trigger": "scheduled-account1"}
         )
-        logger.info(f"📌 [Acc 1] Random Pin {i+1} Set: {run_time.strftime('%I:%M %p')}")
+        logger.info(f"📌 [Acc 1] Random Pin {i+1} Set: {run_time.strftime('%I:%M %p')} EST")
 
     # 🔵 Account 2 ke liye 3 random pins
     for i in range(3):
@@ -76,33 +76,33 @@ def schedule_random_pins():
             scheduled_job, "date", run_date=run_time, 
             id=f"random_pin_acc2_{i}", kwargs={"trigger": "scheduled-account2"}
         )
-        logger.info(f"📌 [Acc 2] Random Pin {i+1} Set: {run_time.strftime('%I:%M %p')}")
+        logger.info(f"📌 [Acc 2] Random Pin {i+1} Set: {run_time.strftime('%I:%M %p')} EST")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ---------------------------------------------------------
-    # 1️⃣ FIXED PINS (Har account ke liye 2 fixed time)
+    # 1️⃣ FIXED PINS (US EST TIME KE HISAAB SE)
     # ---------------------------------------------------------
-    # Account 1 Fixed: Subah 9:00 AM & Shaam 6:00 PM (18:00)
-    scheduler.add_job(scheduled_job, "cron", hour=9,  minute=0, id="acc1_fixed_1", kwargs={"trigger": "scheduled-account1"})
-    scheduler.add_job(scheduled_job, "cron", hour=18, minute=0, id="acc1_fixed_2", kwargs={"trigger": "scheduled-account1"})
+    # Account 1 Fixed: US Shaam 5:00 PM (17:00) & Raat 8:00 PM (20:00)
+    scheduler.add_job(scheduled_job, "cron", hour=17, minute=0, id="acc1_fixed_1", kwargs={"trigger": "scheduled-account1"})
+    scheduler.add_job(scheduled_job, "cron", hour=20, minute=0, id="acc1_fixed_2", kwargs={"trigger": "scheduled-account1"})
     
-    # Account 2 Fixed: Subah 10:00 AM & Raat 8:00 PM (20:00)
-    scheduler.add_job(scheduled_job, "cron", hour=10, minute=0, id="acc2_fixed_1", kwargs={"trigger": "scheduled-account2"})
-    scheduler.add_job(scheduled_job, "cron", hour=20, minute=0, id="acc2_fixed_2", kwargs={"trigger": "scheduled-account2"})
+    # Account 2 Fixed: US Shaam 6:00 PM (18:00) & Raat 9:00 PM (21:00)
+    scheduler.add_job(scheduled_job, "cron", hour=18, minute=0, id="acc2_fixed_1", kwargs={"trigger": "scheduled-account2"})
+    scheduler.add_job(scheduled_job, "cron", hour=21, minute=0, id="acc2_fixed_2", kwargs={"trigger": "scheduled-account2"})
     
     # ---------------------------------------------------------
     # 2️⃣ RANDOM PINS SETUP
     # ---------------------------------------------------------
-    # Ye job daily subah 8 baje chalega aur dono accounts ke liye aaj ke random time decide karega
+    # Ye job daily US subah 8 baje chalega aur aaj ke random time decide karega
     scheduler.add_job(schedule_random_pins, "cron", hour=8, minute=0, id="daily_randomizer_trigger")
     
     # Server start hote hi aaj ke liye random pins activate kar dete hain
     schedule_random_pins()
 
     scheduler.start()
-    logger.info("✅ Master Scheduler Active — Har account pe 5 pins (2 Fixed + 3 Random) set ho chuki hain!")
+    logger.info("✅ Master Scheduler Active — Bot ab pure US Time (EST) par chal raha hai! 🇺🇸")
     yield
     scheduler.shutdown()
 
