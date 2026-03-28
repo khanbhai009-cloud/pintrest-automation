@@ -1,0 +1,43 @@
+name: Pinteresto Bot Runner
+
+on:
+  schedule:
+    # Ye bot ko har 6 ghante mein jagaayega (Cloud PC on karega)
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Isse tujhe Manual "Run" button milega
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Agar Playwright use kar rahe ho toh ye line zaroori hai:
+          # playwright install chromium
+
+      - name: Run Pinteresto Bot
+        env:
+          # Yahan apne saare Secrets link karo jo tune Browser mein daale the
+          PINTEREST_EMAIL: ${{ secrets.PINTEREST_EMAIL }}
+          PINTEREST_PASS: ${{ secrets.PINTEREST_PASS }}
+          API_KEY: ${{ secrets.API_KEY }}
+          # Agar koi aur key hai toh wo bhi yahan add karo
+        run: |
+          # Kyunki ye GitHub Action hai, ye 24/7 server nahi hai.
+          # Hum direct main.py chalayenge jo scheduler ko trigger karega.
+          python main.py & 
+          sleep 300 # Ye 5 minute tak machine ko on rakhega taaki tasks ho sakein.
+          # Note: GitHub Actions background tasks ke liye thoda tricky hai.
+
