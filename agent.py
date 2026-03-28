@@ -23,7 +23,6 @@ from tools.admitad import enrich_with_affiliate_link
 from utils.image_processor import process_product_image
 from tools.llm import chat
 from config import GROQ_API_KEY, GROQ_MODEL, CEREBRAS_API_KEY, CEREBRAS_MODEL, PINTEREST_ACCOUNTS
-from tools.tavily_search import get_trending_keyword
 
 logger = logging.getLogger(__name__)
 
@@ -109,9 +108,7 @@ async def fetch_aliexpress_products(niche: str, keyword: str = "") -> dict:
     Requires 'keyword' fetched from Step 3 (Trend Hijacking).
     """
     # 1. Tavily wala fresh keyword sabse pehle try karenge!
-    keywords_to_try = [keyword] if keyword else []
-    
-    # 2. Safety (Fallback) ke liye purane hardcoded keywords bhi add kar lenge
+  # 2. Safety (Fallback) ke liye purane hardcoded keywords bhi add kar lenge
     # Agar kisi wajah se Tavily ka keyword fail hua, toh sheet khali nahi rahegi
     fallback_list = KEYWORDS_BY_NICHE.get(niche, DEFAULT_KEYWORDS)
     if fallback_list:
