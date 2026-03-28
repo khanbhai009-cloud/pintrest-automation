@@ -23,7 +23,7 @@ state = {
     "posted_today": 0, "last_summary": "Not run yet", "last_action": "—",
 }
 
-# 🔥 SABSE BADA CHANGE: Timezone ab US Eastern Time (New York) ho gaya hai!
+# Timezone US Eastern Time (New York)
 scheduler = AsyncIOScheduler(timezone="America/New_York")
 
 async def scheduled_job(trigger: str):
@@ -48,17 +48,15 @@ async def scheduled_job(trigger: str):
 def schedule_random_pins():
     """US Prime Time (4 PM se 10 PM) ke beech random pins generate karega"""
     now = datetime.now()
-    start_hour = 16  # US ke Dopehar 4:00 PM se window shuru
-    window_minutes = 6 * 60  # 6 ghante ki window (10:00 PM tak)
+    start_hour = 16 
+    window_minutes = 6 * 60 
     
-    # Pehle purane random jobs clear karo taaki duplicate na bane
     for job in scheduler.get_jobs():
         if job.id and str(job.id).startswith("random_pin_"):
             scheduler.remove_job(job.id)
             
     logger.info("🎲 Generating 3 Random pins for Account 1 AND 3 for Account 2 in US Prime Time...")
 
-    # 🟢 Account 1 ke liye 3 random pins
     for i in range(3):
         random_mins = random.randint(0, window_minutes)
         run_time = now.replace(hour=start_hour, minute=0, second=0, microsecond=0) + timedelta(minutes=random_mins)
@@ -68,7 +66,6 @@ def schedule_random_pins():
         )
         logger.info(f"📌 [Acc 1] Random Pin {i+1} Set: {run_time.strftime('%I:%M %p')} EST")
 
-    # 🔵 Account 2 ke liye 3 random pins
     for i in range(3):
         random_mins = random.randint(0, window_minutes)
         run_time = now.replace(hour=start_hour, minute=0, second=0, microsecond=0) + timedelta(minutes=random_mins)
@@ -81,41 +78,27 @@ def schedule_random_pins():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ---------------------------------------------------------
-    # 1️⃣ FIXED PINS (US EST TIME KE HISAAB SE)
-    # ---------------------------------------------------------
-    # Account 1 Fixed: US Shaam 5:00 PM (17:00) & Raat 8:00 PM (20:00)
+    # FIXED PINS (US EST)
     scheduler.add_job(scheduled_job, "cron", hour=17, minute=0, id="acc1_fixed_1", kwargs={"trigger": "scheduled-account1"})
     scheduler.add_job(scheduled_job, "cron", hour=20, minute=0, id="acc1_fixed_2", kwargs={"trigger": "scheduled-account1"})
     
-    # Account 2 Fixed: US Shaam 6:00 PM (18:00) & Raat 9:00 PM (21:00)
     scheduler.add_job(scheduled_job, "cron", hour=18, minute=0, id="acc2_fixed_1", kwargs={"trigger": "scheduled-account2"})
     scheduler.add_job(scheduled_job, "cron", hour=21, minute=0, id="acc2_fixed_2", kwargs={"trigger": "scheduled-account2"})
     
-    # ---------------------------------------------------------
-    # 2️⃣ RANDOM PINS SETUP
-    # ---------------------------------------------------------
-    # Ye job daily US subah 8 baje chalega aur aaj ke random time decide karega
     scheduler.add_job(schedule_random_pins, "cron", hour=8, minute=0, id="daily_randomizer_trigger")
     
-    # Server start hote hi aaj ke liye random pins activate kar dete hain
     schedule_random_pins()
-
     scheduler.start()
-    logger.info("✅ Master Scheduler Active — Bot ab pure US Time (EST) par chal raha hai! 🇺🇸")
+    logger.info("✅ Master Scheduler Active — US Time (EST) 🇺🇸")
     yield
     scheduler.shutdown()
 
-# FastAPI App setup
 app = FastAPI(title="Pinteresto Bot", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 async def dashboard(): return FileResponse("static/index.html")
-
-@app.get("/api/ping")
-async def ping(): return {"status": "ok", "message": "pong"}
 
 @app.get("/api/stats")
 async def get_stats():
@@ -132,11 +115,6 @@ async def get_stats():
         "last_summary": state["last_summary"], "last_action": state["last_action"],
         "running": state["running"]
     }
-
-@app.get("/api/products")
-async def get_products():
-    try: return {"products": get_all_products()}
-    except Exception as e: return {"products": [], "error": str(e)}
 
 def bg_task_runner(background_tasks: BackgroundTasks, trigger: str, action_name: str):
     if state["running"]: return {"status": "busy", "message": "Agent already running"}
@@ -174,7 +152,8 @@ async def trigger_fill_niches(background_tasks: BackgroundTasks):
         state["running"] = True
         state["last_action"] = "Fill Niches"
         try:
-            result = fill_missing_niches.func()
+            # ✅ FIX: Using ainvoke instead of .func()
+            result = await fill_missing_niches.ainvoke({})
             state["last_summary"] = result.get("message", "Done")
         except Exception as e:
             state["last_summary"] = f"Fill niches error: {e}"
@@ -190,7 +169,8 @@ async def trigger_fetch(background_tasks: BackgroundTasks):
         state["running"] = True
         state["last_action"] = "Fetch Products"
         try:
-            result = await fetch_aliexpress_products.func(niche="home")
+            # ✅ FIX: Using ainvoke instead of .func()
+            result = await fetch_aliexpress_products.ainvoke({"niche": "home"})
             state["last_summary"] = f"Fetched: {result.get('approved',0)} approved"
         except Exception as e:
             state["last_summary"] = f"Fetch error: {e}"
@@ -216,5 +196,4 @@ async def ai_chat(msg: ChatMessage):
 
 if __name__ == "__main__":
     import uvicorn
-    # Terminal me run karke dekho, sidha start hoga aur dashboard live!
     uvicorn.run(app, host="0.0.0.0", port=7860)
