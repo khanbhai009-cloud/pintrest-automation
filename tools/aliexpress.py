@@ -5,14 +5,13 @@ from config import RAPIDAPI_KEY
 
 logger   = logging.getLogger(__name__)
 
-# RapidAPI Endpoint for Amazon Search
 BASE_URL = "https://real-time-amazon-data.p.rapidapi.com/search"
 HEADERS  = {
     "x-rapidapi-host": "real-time-amazon-data.p.rapidapi.com",
     "x-rapidapi-key":  RAPIDAPI_KEY,
 }
 
-# ── Niche-Based Keywords (Amazon Friendly) ────────────────────────────────────
+# Niche-Based Keywords
 KEYWORDS_BY_NICHE = {
     "home": [
         "aesthetic room decor", "amazon home finds", "nordic home decor",
@@ -69,57 +68,55 @@ async def search_products(
             keyword = random.choice(KEYWORDS_BY_NICHE.get(niche, DEFAULT_KEYWORDS))
 
         async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.get(
-                BASE_URL,
-                headers=HEADERS,
-                params={
-                    "query": keyword,
-                    "page": str(page),
-                    "country": "US",         # US traffic only
-                    "sort_by": "REVIEWS_DESC" 
-                },
-            )
+            # Exact parameters jo tune test kiye hain
+            params = {
+                "query": keyword, # API check: use 'query' as per your successful test
+                "page": str(page),
+                "country": "US",
+                "sort_by": "RELEVANCE",
+                "language": "en_US"
+            }
+            
+            r = await client.get(BASE_URL, headers=HEADERS, params=params)
+        
         r.raise_for_status()
         data = r.json()
 
-        logger.info(f"🔍 Raw keys from Amazon API: {list(data.keys())}")
-
-        raw = (
-            data.get("data", {}).get("products") or
-            data.get("products") or
-            data.get("results") or
-            []
-        )
+        # Data mapping according to your successful JSON response
+        raw = data.get("data", {}).get("products", [])
 
         if not raw:
-            logger.warning(f"⚠️ No items found for {keyword}.")
+            logger.warning(f"⚠️ No products found in API response for: {keyword}")
             return []
 
         normalized = []
         for item in raw[:max_results]:
-            asin = item.get("asin") or item.get("product_id")
+            asin = item.get("asin")
             if not asin:
                 continue
 
-            title = item.get("product_title") or item.get("title") or "Amazon Find"
-            image_url = item.get("product_photo") or item.get("image") or ""
-            price_str = str(item.get("product_price") or item.get("price") or "$0.00")
+            # Keys updated to match your exact JSON output
+            title = item.get("product_title", "Amazon Product")
+            image_url = item.get("product_photo", "")
+            price = item.get("product_price", "$0.00")
+            rating = item.get("product_star_rating", 0)
+            reviews = item.get("product_num_ratings", 0)
 
             normalized.append({
                 "product_id":   asin,
                 "product_name": str(title)[:120],
-                "sale_price":   price_str,
-                "orders":       str(item.get("product_num_ratings") or item.get("review_count") or "0"),
-                "rating":       item.get("product_star_rating") or item.get("rating") or 0,
+                "sale_price":   str(price),
+                "orders":       str(reviews), # Amazon provides num_ratings
+                "rating":       rating,
                 "image_url":    image_url,
-                "product_url":  f"https://www.amazon.com/dp/{asin}", 
+                "product_url":  f"https://www.amazon.com/dp/{asin}",
                 "keyword":      keyword,
                 "niche":        niche,
             })
 
-        logger.info(f"✅ Amazon '{keyword}': {len(normalized)} products fetched")
+        logger.info(f"✅ Amazon Success! '{keyword}': {len(normalized)} items fetched.")
         return normalized
 
     except Exception as e:
-        logger.error(f"❌ Amazon API error: {e}")
+        logger.error(f"❌ Amazon Scraper Error: {e}")
         return []
