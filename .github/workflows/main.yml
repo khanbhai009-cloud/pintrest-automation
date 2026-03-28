@@ -1,4 +1,4 @@
-Name: Pinteresto Cloud Runner
+name: Pinteresto Cloud Runner
 
 on:
   schedule:
