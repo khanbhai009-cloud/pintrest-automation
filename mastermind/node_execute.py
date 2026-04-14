@@ -1,32 +1,8 @@
 """
-mastermind/node_execute.py — Node 4: Execution Engine (100% AI Image)
-
-PIL/Pillow completely removed. No manual overlays. No text drawing.
-Gemini is the sole image engine.
-
-IMAGE MODES (driven by CMO strategy):
-  • "Affiliate Strike" / "Visual Pivot" → Image-to-Image
-      Fetch product photo bytes from image_url in the Google Sheet.
-      Send bytes + CMO image_prompt to gemini image model.
-      Gemini natively blends the product into a high-aesthetic Pinterest scene.
-
-  • "Algorithmic Viral-Bait (No links)" → Text-to-Image
-      No product source image. Pure CMO prompt → Gemini generates a standalone
-      aesthetic visual. Affiliate link is also stripped from the payload.
-
-GENERATED IMAGE DELIVERY:
-  Image bytes are saved to static/tmp_pins/ which FastAPI already serves
-  at /static/tmp_pins/<uuid>.jpg.  The public HTTPS URL is constructed from
-  REPLIT_DEV_DOMAIN (dev) or APP_BASE_URL (production) and passed unchanged
-  to the existing make_webhook.post_to_pinterest() function.
-
-RATE LIMITING (10 RPM):
-  tenacity exponential backoff: multiplier=2, min=6 s, max=60 s, 4 attempts.
-
-BULLETPROOF FALLBACK:
-  If Gemini image generation fails after all retries, the pipeline falls back
-  to the raw image_url from the Google Sheet.  The pin is still published.
-  Pipeline NEVER stops.
+mastermind/node_execute.py — Node 4: Execution Engine (Final Fixed Version)
+- Manual Trigger Support: Only runs the account requested.
+- Sequential Execution: Adds a 60s delay between accounts during scheduled runs to prevent 429 Quota errors.
+- Fallback: Uses Sheet image if Gemini fails.
 """
 import asyncio
 import logging
@@ -55,12 +31,12 @@ logger = logging.getLogger(__name__)
 # ── Gemini client ─────────────────────────────────────────────────────────────
 _gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-# ── Temp image directory (served via FastAPI's existing /static/ mount) ───────
+# ── Temp image directory ──────────────────────────────────────────────────────
 _TMP_DIR = Path("static/tmp_pins")
 _TMP_DIR.mkdir(parents=True, exist_ok=True)
-_TMP_TTL_SECONDS = 3600  # Prune files older than 1 h during each cycle
+_TMP_TTL_SECONDS = 3600  
 
-# ── Per-account routing (mirrors PINTEREST_ACCOUNTS in config.py) ─────────────
+# ── Per-account routing ───────────────────────────────────────────────────────
 _ACCOUNT_CONFIG = {
     "account_1": {
         "name":   "Account1_HomeDecor",
@@ -72,428 +48,180 @@ _ACCOUNT_CONFIG = {
     },
 }
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# Utility helpers
+# Utility helpers (Untouched)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _app_base_url() -> str:
-    """Return the public HTTPS base URL for this Replit deployment."""
-    domain = (
-        os.getenv("REPLIT_DEV_DOMAIN")
-        or os.getenv("APP_BASE_URL", "")
-    ).strip()
+    domain = (os.getenv("REPLIT_DEV_DOMAIN") or os.getenv("APP_BASE_URL", "")).strip()
     if domain and not domain.startswith("http"):
         domain = f"https://{domain}"
     return domain.rstrip("/")
 
-
 def _save_image(image_bytes: bytes) -> str | None:
-    """
-    Persist raw image bytes to static/tmp_pins/ and return a public URL.
-    Returns None if the base URL is unknown or write fails.
-    """
     base = _app_base_url()
-    if not base:
-        logger.warning(
-            "⚠️  REPLIT_DEV_DOMAIN / APP_BASE_URL not set — "
-            "cannot build a public URL for the generated image."
-        )
-        return None
+    if not base: return None
     try:
         filename = f"{uuid.uuid4().hex}.jpg"
         (_TMP_DIR / filename).write_bytes(image_bytes)
-        public_url = f"{base}/static/tmp_pins/{filename}"
-        logger.info(f"🖼️  AI image persisted → {public_url}")
-        return public_url
-    except Exception as e:
-        logger.error(f"❌ Failed to save generated image to disk: {e}")
-        return None
-
+        return f"{base}/static/tmp_pins/{filename}"
+    except Exception: return None
 
 def _prune_tmp_images() -> None:
-    """Delete files in tmp_pins older than TTL (runs opportunistically)."""
     cutoff = time.time() - _TMP_TTL_SECONDS
     for f in _TMP_DIR.glob("*.jpg"):
         try:
-            if f.stat().st_mtime < cutoff:
-                f.unlink()
-                logger.debug(f"🗑️  Pruned stale temp image: {f.name}")
-        except Exception:
-            pass
-
+            if f.stat().st_mtime < cutoff: f.unlink()
+        except Exception: pass
 
 def _extract_image_bytes(response) -> bytes:
-    """Pull the first IMAGE part out of a Gemini generate_content response."""
     for part in response.candidates[0].content.parts:
         if part.inline_data and part.inline_data.data:
             return part.inline_data.data
-    raise ValueError("Gemini response contained no image data in any part.")
-
+    raise ValueError("Gemini response contained no image data.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Gemini image generators — sync, tenacity-decorated, run via asyncio.to_thread
+# Gemini Generators
 # ─────────────────────────────────────────────────────────────────────────────
 
-@retry(
-    retry=retry_if_exception_type(Exception),
-    wait=wait_exponential(multiplier=2, min=6, max=60),  # 10 RPM → 6 s minimum
-    stop=stop_after_attempt(4),
-    reraise=True,
-)
+@retry(retry=retry_if_exception_type(Exception), wait=wait_exponential(multiplier=2, min=6, max=60), stop=stop_after_attempt(4), reraise=True)
 def _img2img_sync(source_bytes: bytes, prompt: str) -> bytes:
-    """
-    Image-to-Image generation.
-    Sends the product photo + CMO aesthetic direction to Gemini.
-    Gemini natively blends the product into a high-end Pinterest scene,
-    adding any requested text as native image elements.
-    """
-    if not _gemini_client:
-        raise ValueError("GEMINI_API_KEY is not configured.")
-
-    image_part = genai_types.Part.from_bytes(
-        data=source_bytes,
-        mime_type="image/jpeg",
-    )
     response = _gemini_client.models.generate_content(
         model=GEMINI_IMAGE_MODEL,
-        contents=[image_part, prompt],
-        config=genai_types.GenerateContentConfig(
-            response_modalities=["IMAGE", "TEXT"],
-        ),
+        contents=[genai_types.Part.from_bytes(data=source_bytes, mime_type="image/jpeg"), prompt],
+        config=genai_types.GenerateContentConfig(response_modalities=["IMAGE", "TEXT"]),
     )
     return _extract_image_bytes(response)
 
-
-@retry(
-    retry=retry_if_exception_type(Exception),
-    wait=wait_exponential(multiplier=2, min=6, max=60),
-    stop=stop_after_attempt(4),
-    reraise=True,
-)
+@retry(retry=retry_if_exception_type(Exception), wait=wait_exponential(multiplier=2, min=6, max=60), stop=stop_after_attempt(4), reraise=True)
 def _txt2img_sync(prompt: str) -> bytes:
-    """
-    Text-to-Image generation.
-    Pure CMO prompt → Gemini standalone aesthetic visual (no source product).
-    Used for "Algorithmic Viral-Bait" strategy.
-    """
-    if not _gemini_client:
-        raise ValueError("GEMINI_API_KEY is not configured.")
-
     response = _gemini_client.models.generate_content(
         model=GEMINI_IMAGE_MODEL,
         contents=prompt,
-        config=genai_types.GenerateContentConfig(
-            response_modalities=["IMAGE", "TEXT"],
-        ),
+        config=genai_types.GenerateContentConfig(response_modalities=["IMAGE", "TEXT"]),
     )
     return _extract_image_bytes(response)
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# Async image orchestrator
+# Core Logic — Image Generation Orchestrator
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def _generate_ai_image(
-    strategy_name: str,
-    cmo_strategy: dict,
-    raw_image_url: str,
-    account_label: str,
-) -> str | None:
-    """
-    Orchestrate the correct Gemini image mode based on CMO strategy.
-    Returns a public URL to the generated image, or None on total failure.
-    The caller falls back to raw_image_url when None is returned.
-    """
+async def _generate_ai_image(strategy_name: str, cmo_strategy: dict, raw_image_url: str, account_label: str) -> str | None:
     _prune_tmp_images()
-
-    # Pull the first image_prompt the CMO produced for this account
-    image_prompt_direction = (
-        cmo_strategy.get("image_prompts") or ["aesthetic Pinterest pin"]
-    )[0]
-    vibe = cmo_strategy.get("vibe", "aspirational and aesthetic")
-    is_viral_bait = "Viral-Bait" in strategy_name
-
-    if is_viral_bait:
-        # ── Mode: Text-to-Image ───────────────────────────────────────────────
-        full_prompt = (
-            f"Create a stunning, scroll-stopping Pinterest pin image. "
-            f"Brand vibe: {vibe}. "
-            f"Visual concept: {image_prompt_direction}. "
-            f"Style: ultra-high-quality, aspirational, Pinterest-aesthetic. "
-            f"No product, no affiliate elements — pure visual appeal."
-        )
-        logger.info(
-            f"🎨 [{account_label}] Viral-Bait → Text-to-Image | "
-            f"prompt: '{full_prompt[:80]}...'"
-        )
+    image_prompt_direction = (cmo_strategy.get("image_prompts") or ["aesthetic Pinterest pin"])[0]
+    vibe = cmo_strategy.get("vibe", "aspirational")
+    
+    # Mode: Text-to-Image (Viral-Bait)
+    if "Viral-Bait" in strategy_name:
+        prompt = f"Pinterest aesthetic pin. Vibe: {vibe}. Concept: {image_prompt_direction}. High-end visual."
         try:
-            image_bytes = await asyncio.to_thread(_txt2img_sync, full_prompt)
+            image_bytes = await asyncio.to_thread(_txt2img_sync, prompt)
             return _save_image(image_bytes)
         except Exception as e:
-            logger.error(f"❌ [{account_label}] Text-to-Image failed after all retries: {e}")
+            logger.error(f"❌ [{account_label}] Text-to-Image failed: {e}")
             return None
 
-    else:
-        # ── Mode: Image-to-Image (Affiliate Strike / Visual Pivot) ────────────
-        # Step A: Fetch the product image bytes from the Sheet's image_url
-        source_bytes: bytes | None = None
-        if raw_image_url:
-            try:
-                async with httpx.AsyncClient(timeout=25) as client:
-                    resp = await client.get(raw_image_url, follow_redirects=True)
-                    resp.raise_for_status()
-                    source_bytes = resp.content
-                logger.info(
-                    f"📥 [{account_label}] Source product image fetched "
-                    f"({len(source_bytes):,} bytes)"
-                )
-            except Exception as e:
-                logger.warning(
-                    f"⚠️  [{account_label}] Could not download source image "
-                    f"({e}) — will attempt Text-to-Image fallback."
-                )
-
-        if source_bytes:
-            # Step B: Image-to-Image — blend product into aesthetic environment
-            full_prompt = (
-                f"You are a world-class Pinterest visual designer. "
-                f"Edit this product image to create a premium, high-aesthetic Pinterest pin. "
-                f"Brand vibe: {vibe}. "
-                f"Visual direction: {image_prompt_direction}. "
-                f"Keep the product clearly visible, centred, and flattering. "
-                f"Make the result look aspirational, scroll-stopping, and magazine-quality. "
-                f"If the direction requests text in the image, render it natively with elegant typography."
-            )
-            logger.info(
-                f"🖼️  [{account_label}] Affiliate/Visual → Image-to-Image | "
-                f"direction: '{image_prompt_direction[:60]}'"
-            )
-            try:
-                image_bytes = await asyncio.to_thread(
-                    _img2img_sync, source_bytes, full_prompt
-                )
-                return _save_image(image_bytes)
-            except Exception as e:
-                logger.error(
-                    f"❌ [{account_label}] Image-to-Image failed after all retries: {e}. "
-                    f"Trying Text-to-Image as inner fallback."
-                )
-
-        # Step C: Inner fallback — Text-to-Image if source fetch or i2i failed
-        txt_prompt = (
-            f"Create a stunning Pinterest product-showcase pin. "
-            f"Brand vibe: {vibe}. "
-            f"Visual concept: {image_prompt_direction}. "
-            f"Style: aspirational, high-end, scroll-stopping."
-        )
+    # Mode: Image-to-Image (Affiliate/Visual)
+    source_bytes = None
+    if raw_image_url:
         try:
-            image_bytes = await asyncio.to_thread(_txt2img_sync, txt_prompt)
-            logger.info(f"🎨 [{account_label}] Inner Text-to-Image fallback succeeded.")
+            async with httpx.AsyncClient(timeout=25) as client:
+                resp = await client.get(raw_image_url, follow_redirects=True)
+                resp.raise_for_status()
+                source_bytes = resp.content
+        except Exception: pass
+
+    if source_bytes:
+        prompt = f"Pinterest designer pin. Vibe: {vibe}. Direction: {image_prompt_direction}. Keep product centered."
+        try:
+            image_bytes = await asyncio.to_thread(_img2img_sync, source_bytes, prompt)
             return _save_image(image_bytes)
-        except Exception as e:
-            logger.error(
-                f"❌ [{account_label}] Text-to-Image inner fallback also failed: {e}. "
-                f"Will use raw sheet image_url."
-            )
-            return None
+        except Exception: pass
 
+    return None
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Per-account publish pipeline
+# Account Publish Pipeline
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def _execute_for_account(
-    account_key: str,
-    seo_copy: dict,
-    cmo_strategy: dict,
-) -> dict:
-    """
-    Full publish pipeline for one account. Steps:
-      1. Fetch next PENDING product from the correct niche pool (from Sheet).
-      2. Build SEO copy fields from Node 3 output.
-      3. Generate AI image via Gemini → save → get public URL.
-         Fallback: use raw image_url from the Sheet if Gemini completely fails.
-      4. Determine affiliate link (stripped for Viral-Bait strategy).
-      5. Fire existing post_to_pinterest() webhook — untouched.
-      6. Mark product as POSTED in the Sheet.
-
-    Returns a status dict. Never raises.
-    """
+async def _execute_for_account(account_key: str, seo_copy: dict, cmo_strategy: dict) -> dict:
     cfg = _ACCOUNT_CONFIG[account_key]
     account_name = cfg["name"]
     strategy_name = cmo_strategy.get("strategy", "")
 
-    # ── 1. Fetch next pending product ─────────────────────────────────────────
+    # 1. Fetch pending product
     try:
         products = get_pending_products(limit=1, allowed_niches=cfg["niches"])
     except Exception as e:
-        logger.error(f"❌ [{account_name}] get_pending_products failed: {e}")
-        return {
-            "success": False,
-            "message": f"Product fetch failed: {e}",
-            "account": account_name,
-        }
+        return {"success": False, "message": f"Fetch failed: {e}", "account": account_name}
 
     if not products:
-        logger.warning(
-            f"⚠️  [{account_name}] No pending products in niches "
-            f"{cfg['niches']}. Skipping."
-        )
-        return {
-            "success": False,
-            "message": "No pending products available.",
-            "account": account_name,
-        }
+        return {"success": False, "message": "No pending products.", "account": account_name}
 
-    product      = products[0]
-    niche        = product.get("niche") or cfg["niches"][0]
-    raw_img_url  = product.get("image_url", "")
+    product = products[0]
+    niche = product.get("niche") or cfg["niches"][0]
+    raw_img_url = product.get("image_url", "")
     product_name = product.get("product_name", "Amazing Find")
 
-    # ── 2. Resolve SEO copy ───────────────────────────────────────────────────
-    title       = (seo_copy.get("title") or product_name)[:100]
-    description = seo_copy.get("description", "")
-    tags        = seo_copy.get("tags") or []
+    # 2. AI Image Generation
+    ai_image_url = await _generate_ai_image(strategy_name, cmo_strategy, raw_img_url, account_name)
+    final_image_url = ai_image_url if ai_image_url else raw_img_url
+    image_source = f"gemini" if ai_image_url else "sheet-fallback"
 
-    # ── 3. Generate AI image (Gemini) ─────────────────────────────────────────
-    ai_image_url = await _generate_ai_image(
-        strategy_name=strategy_name,
-        cmo_strategy=cmo_strategy,
-        raw_image_url=raw_img_url,
-        account_label=account_name,
-    )
+    # 3. Affiliate link
+    affiliate_link = (product.get("affiliate_link") or product.get("product_url", ""))
+    if "Viral-Bait" in strategy_name: affiliate_link = ""
 
-    if ai_image_url:
-        final_image_url = ai_image_url
-        image_source    = f"gemini [{GEMINI_IMAGE_MODEL}]"
-        logger.info(f"✨ [{account_name}] Using Gemini-generated image.")
-    else:
-        # ── Bulletproof outer fallback: raw Sheet image_url ───────────────────
-        logger.warning(
-            f"⚠️  [{account_name}] All Gemini attempts exhausted — "
-            f"using raw Sheet image_url as final fallback."
-        )
-        final_image_url = raw_img_url
-        image_source    = "sheet-fallback"
-
-    # ── 4. Affiliate link (stripped for Viral-Bait) ───────────────────────────
-    affiliate_link = (
-        product.get("affiliate_link") or product.get("product_url", "")
-    )
-    if "Viral-Bait" in strategy_name:
-        affiliate_link = ""
-        logger.info(f"🎯  [{account_name}] Viral-Bait → affiliate link stripped.")
-
-    # ── 5. Fire existing webhook (untouched) ──────────────────────────────────
+    # 4. Post Webhook
     try:
         success = await post_to_pinterest(
             image_url=final_image_url,
-            title=title,
-            description=description,
+            title=(seo_copy.get("title") or product_name)[:100],
+            description=seo_copy.get("description", ""),
             link=affiliate_link,
-            tags=tags,
+            tags=seo_copy.get("tags") or [],
             niche=niche,
             target_account=account_name,
         )
+        if success: mark_as_posted(product_name)
     except Exception as e:
-        logger.error(f"❌ [{account_name}] Webhook exception: {e}")
-        return {
-            "success": False,
-            "message": f"Webhook exception: {e}",
-            "account": account_name,
-        }
+        return {"success": False, "message": str(e), "account": account_name}
 
-    if not success:
-        logger.error(f"❌ [{account_name}] Webhook returned a failure status.")
-        return {
-            "success": False,
-            "message": "Webhook returned failure.",
-            "account": account_name,
-        }
-
-    # ── 6. Mark as POSTED in Sheet ────────────────────────────────────────────
-    try:
-        mark_as_posted(product_name)
-    except Exception as e:
-        logger.warning(
-            f"⚠️  [{account_name}] mark_as_posted failed ({e}) — "
-            f"pin published but Sheet status not updated."
-        )
-
-    logger.info(
-        f"✅ [{account_name}] POSTED — '{title[:60]}' | "
-        f"niche={niche} | strategy={strategy_name} | image={image_source}"
-    )
-    return {
-        "success":      True,
-        "message":      f"Posted: {title[:60]}",
-        "account":      account_name,
-        "niche":        niche,
-        "strategy":     strategy_name,
-        "image_source": image_source,
-        "product":      product_name,
-    }
-
+    return {"success": success, "message": f"Posted: {product_name[:30]}", "account": account_name, "image_source": image_source}
 
 # ─────────────────────────────────────────────────────────────────────────────
-# LangGraph node entry point
+# THE FIX: LangGraph Node Entry Point
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def node_execution_engine(state: MastermindState) -> dict:
     """
     Node 4 — Execution Engine.
-    Runs Account 1 and Account 2 in parallel (asyncio.gather).
-    Any unhandled exception is normalised to a failure status dict.
-    The graph loop never crashes here.
+    Sequential execution based on cycle_trigger to prevent 429 Quota errors.
     """
-    logger.info(
-        "🚀 [Node 4 — Execution Engine] "
-        "Generating AI images & publishing pins for both accounts in parallel..."
-    )
+    trigger = state.get("cycle_trigger", "scheduled")
+    logger.info(f"🚀 [Node 4] Execution triggered by: {trigger}")
 
-    results = await asyncio.gather(
-        _execute_for_account(
-            "account_1",
-            state["a1_final_seo_copy"],
-            state["a1_cmo_strategy"],
-        ),
-        _execute_for_account(
-            "account_2",
-            state["a2_final_seo_copy"],
-            state["a2_cmo_strategy"],
-        ),
-        return_exceptions=True,
-    )
+    # Default Statuses
+    a1_status = {"success": False, "message": "Skipped (Trigger mismatch)", "account": "Account1_HomeDecor"}
+    a2_status = {"success": False, "message": "Skipped (Trigger mismatch)", "account": "Account2_Tech"}
 
-    a1_status, a2_status = results
+    # Logic: Filter by Trigger
+    if trigger == "manual-account1":
+        logger.info("🎯 Processing Account 1 ONLY.")
+        a1_status = await _execute_for_account("account_1", state["a1_final_seo_copy"], state["a1_cmo_strategy"])
+    
+    elif trigger == "manual-account2":
+        logger.info("🎯 Processing Account 2 ONLY.")
+        a2_status = await _execute_for_account("account_2", state["a2_final_seo_copy"], state["a2_cmo_strategy"])
+    
+    else:
+        # Scheduled: Run sequentially with delay
+        logger.info("⏳ Scheduled run: Running accounts sequentially with cooldown...")
+        a1_status = await _execute_for_account("account_1", state["a1_final_seo_copy"], state["a1_cmo_strategy"])
+        
+        logger.info("🛌 Cooling down Gemini (60s)...")
+        await asyncio.sleep(60)
+        
+        a2_status = await _execute_for_account("account_2", state["a2_final_seo_copy"], state["a2_cmo_strategy"])
 
-    if isinstance(a1_status, Exception):
-        logger.error(f"❌ [Account 1] Uncaught gather exception: {a1_status}")
-        a1_status = {
-            "success": False,
-            "message": str(a1_status),
-            "account": "Account1_HomeDecor",
-        }
-    if isinstance(a2_status, Exception):
-        logger.error(f"❌ [Account 2] Uncaught gather exception: {a2_status}")
-        a2_status = {
-            "success": False,
-            "message": str(a2_status),
-            "account": "Account2_Tech",
-        }
-
-    a1_icon = "✅" if a1_status["success"] else "❌"
-    a2_icon = "✅" if a2_status["success"] else "❌"
-    logger.info(
-        f"📊 [Node 4 — Done] "
-        f"A1 {a1_icon} {a1_status.get('message', '')} "
-        f"[{a1_status.get('image_source', '')}] | "
-        f"A2 {a2_icon} {a2_status.get('message', '')} "
-        f"[{a2_status.get('image_source', '')}]"
-    )
-
-    return {
-        "a1_publish_status": a1_status,
-        "a2_publish_status": a2_status,
-    }
+    return {"a1_publish_status": a1_status, "a2_publish_status": a2_status}
