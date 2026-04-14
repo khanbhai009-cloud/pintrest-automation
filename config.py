@@ -17,6 +17,11 @@ DAILY_POST_LIMIT      = 2
 LOW_STOCK_THRESHOLD   = 5
 MAX_PRODUCTS_TO_FETCH = int(os.getenv("MAX_PRODUCTS_TO_FETCH", "20"))
 
+# ── Mastermind CEO System ─────────────────────────────────────────────────────
+GEMINI_API_KEY          = os.getenv("GEMINI_API_KEY")
+ANALYTICS_SHEET_ACC1    = "Analytics_Log"    # Account 1 — HomeDecor
+ANALYTICS_SHEET_ACC2    = "Analytics_logs2"  # Account 2 — Tech
+
 PINTEREST_ACCOUNTS = [
     {
         "name":        "Account1_HomeDecor",

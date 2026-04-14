@@ -14,3 +14,7 @@ langgraph
 typing_extensions
 langchain_openai
 pytz
+google-generativeai
+google-genai
+tenacity
+gunicorn

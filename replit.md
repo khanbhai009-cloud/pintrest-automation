@@ -1,84 +1,152 @@
-# Pinteresto — Pinterest Marketing Bot
+# Pinteresto — Mastermind CEO System
 
 ## Overview
 
-Pinteresto is an automated Pinterest marketing bot that discovers trending Amazon products via RapidAPI, enriches them with affiliate links, and posts them to Pinterest boards across multiple accounts. It includes a web dashboard for monitoring and manual control.
+Pinteresto is an automated Pinterest marketing system with two layers:
+
+1. **Legacy Agent** — LangGraph agent that fetches Amazon products, generates affiliate links, and posts to Pinterest via Make.com webhooks.
+2. **Mastermind CEO System** — A four-node LangGraph pipeline that reads Pinterest analytics, generates strategy via Gemini 1.5, generates SEO copy via Groq/Cerebras, and executes posts — with strict account isolation.
 
 ## Tech Stack
 
 - **Language:** Python 3.12
-- **Web Framework:** FastAPI + Uvicorn
-- **AI/Agents:** LangGraph + LangChain + Groq (primary) + Cerebras (fallback)
+- **Web Framework:** FastAPI + Uvicorn (port 5000)
+- **AI — Strategy:** Google Gemini 1.5 Flash (via `google-genai` SDK)
+- **AI — Copywriting:** Groq llama-3.3-70b (primary) + Cerebras llama3.3-70b (fallback)
+- **AI — Agent Orchestration:** LangGraph + LangChain
 - **Database/Storage:** Google Sheets (via gspread)
 - **Scheduling:** APScheduler (AsyncIOScheduler, US Eastern Time)
+- **Rate Limit Handling:** tenacity (exponential backoff for Gemini 5-6 RPM limit)
 - **Image Processing:** Pillow (PIL)
-- **Frontend:** Static HTML/JS dashboard (Tailwind-styled) served by FastAPI
+- **Frontend:** Static HTML/JS dashboard served by FastAPI
 
 ## Project Structure
 
 ```
-main.py          — FastAPI app entry point, scheduler setup, API endpoints
-agent.py         — LangGraph agent/state machine (Fill Niches → Analyze → Fetch → Post)
-config.py        — Centralized config, reads from env vars
+main.py                      — FastAPI app, APScheduler, all API endpoints
+agent.py                     — Legacy LangGraph agent (product fetch → post)
+config.py                    — All config & env var constants
+requirements.txt
+
+mastermind/
+  __init__.py
+  state.py                   — MastermindState TypedDict (strict account isolation)
+  templates.py               — Local copy fallback templates (per niche, never empty)
+  node_data.py               — Node 1: Data Intelligence (analytics fetch, stagnant fallback)
+  node_cmo.py                — Node 2: CMO Mastermind (Gemini + tenacity retry)
+  node_copy.py               — Node 3: Fast Copywriters (Groq → Cerebras → templates)
+  node_execute.py            — Node 4: Execution Engine (image + webhook, never crashes)
+  graph.py                   — LangGraph pipeline assembly & run_mastermind() entry point
+
 tools/
-  google_drive.py — Google Sheets integration (product DB)
-  groq_ai.py      — AI product filtering and pin copy generation
-  llm.py          — Dual LLM client (Groq + Cerebras fallback)
-  aliexpress.py   — Amazon product search via RapidAPI
-  admitad.py      — Affiliate link enrichment
-  make_webhook.py — Pinterest posting via Make.com/Zapier webhook
+  google_drive.py            — Google Sheets: products + get_analytics_rows()
+  groq_ai.py                 — AI product filtering & pin copy generation
+  llm.py                     — Dual LLM client (Groq + Cerebras fallback)
+  aliexpress.py              — Amazon product search via RapidAPI
+  admitad.py                 — Amazon affiliate link builder
+  make_webhook.py            — Pinterest posting via Make.com webhook (untouched)
+
 utils/
-  image_processor.py — Product image download and formatting
+  image_processor.py         — Product image download + Pinterest overlay (untouched)
+
 static/
-  index.html      — Dashboard UI
+  index.html                 — Dashboard UI (Legacy controls + Mastermind CEO panel)
 ```
 
-## Running the App
+## Mastermind CEO Pipeline (4 Nodes)
 
-The app runs on port 5000:
 ```
-python main.py
+[Node 1: Data Intelligence]
+  → Fetches last 7 days from Analytics_Log (Acc 1) & Analytics_logs2 (Acc 2)
+  → Fallback: injects "Stagnant" profile if gspread fails, never crashes
+
+[Node 2: CMO Mastermind — Gemini 1.5 Flash]
+  → Receives isolated metrics per account
+  → Decides strategy: "Visual Pivot", "Aggressive Affiliate Strike", or "Viral-Bait"
+  → tenacity: 12 s → 24 s → 48 s retries for 5-6 RPM limit
+  → Fallback: hardcoded "Visual Pivot" JSON on total Gemini failure
+
+[Node 3: Fast Copywriters — Groq → Cerebras → Local Templates]
+  → Generates Pinterest SEO title, description, hashtags per account
+  → Groq fails → try Cerebras → fallback to niche-specific local templates
+  → Guaranteed non-empty strings. Zero cross-account copy contamination.
+
+[Node 4: Execution Engine]
+  → Fetches next PENDING product for correct niche pool
+  → Processes image via existing image_processor (untouched)
+  → Strips affiliate link if strategy = "Viral-Bait"
+  → Fires existing Make.com webhook (untouched)
+  → Marks product POSTED in Google Sheets
+  → Both accounts run in parallel (asyncio.gather)
+  → All calls wrapped in try/except — never crashes the graph
 ```
+
+## Scheduler (US Eastern Time)
+
+| Time | Job |
+|------|-----|
+| 9:00 AM | 🧠 Mastermind CEO daily cycle |
+| 8:00 AM | Randomizer: schedules 3 random pins per account in 4-10 PM window |
+| 5:00 PM | Account 1 fixed pin |
+| 6:00 PM | Account 2 fixed pin |
+| 8:00 PM | Account 1 fixed pin |
+| 9:00 PM | Account 2 fixed pin |
+| 4-10 PM | 3 random pins × 2 accounts |
 
 ## Required Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `GROQ_API_KEY` | Groq LLM API key (primary AI provider) |
-| `CEREBRAS_API_KEY` | Cerebras API key (fallback AI provider) |
-| `GOOGLE_CREDS_JSON` | Google Service Account credentials JSON string |
+| Variable | Used By |
+|----------|---------|
+| `GEMINI_API_KEY` | Mastermind CMO node (Gemini 1.5 Flash) |
+| `GROQ_API_KEY` | Copywriters node + legacy agent |
+| `CEREBRAS_API_KEY` | Copywriters fallback + legacy agent |
+| `GOOGLE_CREDS_JSON` | Google Sheets (service account JSON string) |
 | `SPREADSHEET_ID` | Google Sheets spreadsheet ID |
-| `RAPIDAPI_KEY` | RapidAPI key for Amazon product search |
-| `MAKE_WEBHOOK_URL` | Make.com webhook URL for Account 1 (HomeDecor) |
-| `MAKE_WEBHOOK_URL_2` | Make.com webhook URL for Account 2 (Tech) |
-| `TAVILY_API_KEY` | (Optional) Tavily search API key |
-| `MAX_PRODUCTS_TO_FETCH` | (Optional, default 20) Max products per fetch |
+| `RAPIDAPI_KEY` | Amazon product search |
+| `MAKE_WEBHOOK_URL` | Account 1 Pinterest webhook |
+| `MAKE_WEBHOOK_URL_2` | Account 2 Pinterest webhook |
+| `TAVILY_API_KEY` | (Optional) Tavily search |
+| `MAX_PRODUCTS_TO_FETCH` | (Optional, default 20) |
 
-## Pinterest Accounts
+## Google Sheets Tabs
 
-- **Account 1 - HomeDecor:** home, kitchen, cozy, gadgets, organize niches
-- **Account 2 - Tech:** tech, budget, phone, smarthome, wfh niches
-
-## Scheduler
-
-Fixed posts at 5 PM, 6 PM, 8 PM, 9 PM EST daily. Also generates 3 random pins per account in the 4–10 PM EST window each day.
+| Tab Name | Purpose |
+|----------|---------|
+| `Approved Deals` | Product inventory (Status: PENDING/POSTED) |
+| `Analytics_Log` | Account 1 Pinterest analytics (Date, Impressions, Clicks, Outbound Clicks, Saves) |
+| `Analytics_logs2` | Account 2 Pinterest analytics (same columns) |
 
 ## API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/` | GET | Dashboard UI |
-| `/api/stats` | GET | Bot stats (pending/posted/running) |
-| `/api/products` | GET | All products from Google Sheets |
-| `/api/run-agent` | POST | Trigger full automation (both accounts) |
-| `/api/run-account1` | POST | Trigger Account 1 only |
-| `/api/run-account2` | POST | Trigger Account 2 only |
-| `/api/fill-niches` | POST | Detect and fill missing niches |
+| `/api/stats` | GET | Legacy agent stats |
+| `/api/products` | GET | All products from Sheets |
+| `/api/mastermind/stats` | GET | Mastermind CEO runtime state |
+| `/api/mastermind/run` | POST | Trigger full Mastermind cycle |
+| `/api/run-agent` | POST | Legacy: full agent run |
+| `/api/run-account1` | POST | Legacy: Account 1 only |
+| `/api/run-account2` | POST | Legacy: Account 2 only |
+| `/api/fill-niches` | POST | Detect & fill missing niches |
 | `/api/fetch-products` | POST | Fetch new products from Amazon |
 | `/api/chat` | POST | AI chat assistant |
 
-## Deployment Notes
+## Account Isolation
 
-- Uses `vm` deployment target (always-running, needed for APScheduler)
-- Production command: `gunicorn --bind=0.0.0.0:5000 --reuse-port --worker-class uvicorn.workers.UvicornWorker main:app`
-- The app gracefully handles missing API keys — the dashboard still loads but agent operations will fail until keys are configured
+**Account 1 — HomeDecor:**
+- Niches: home, kitchen, cozy, gadgets, organize
+- Analytics: `Analytics_Log`
+- Board IDs: defined in `config.py` PINTEREST_ACCOUNTS[0]
+
+**Account 2 — Tech:**
+- Niches: tech, budget, phone, smarthome, wfh
+- Analytics: `Analytics_logs2`
+- Board IDs: defined in `config.py` PINTEREST_ACCOUNTS[1]
+
+Zero cross-contamination: state keys are prefixed `a1_` / `a2_`, copy prompts specify the niche, and product fetching filters by niche list.
+
+## Deployment
+
+- Target: `vm` (always-running — required for APScheduler in-memory state)
+- Command: `gunicorn --bind=0.0.0.0:5000 --reuse-port --worker-class uvicorn.workers.UvicornWorker main:app`

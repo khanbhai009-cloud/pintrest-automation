@@ -144,6 +144,48 @@ header{display:flex;align-items:center;justify-content:space-between;margin-bott
     </div>
   </div>
 
+  <!-- ── Mastermind CEO System ── -->
+  <div class="card" style="margin-bottom:1.2rem; border-color: rgba(155,93,229,0.4);">
+    <div class="card-header">
+      <div style="display:flex;align-items:center;gap:0.6rem;">
+        <div style="width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#9b5de5,#e63946);display:flex;align-items:center;justify-content:center;font-size:16px;">🧠</div>
+        <div>
+          <div class="section-title" style="color:var(--purple);">Mastermind CEO System</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--muted);margin-top:2px;">Gemini Strategy · Groq/Cerebras Copy · Isolated Accounts</div>
+        </div>
+      </div>
+      <div class="agent-status idle" id="mastermind-status-badge" style="border-color:rgba(155,93,229,0.4);color:var(--purple);">IDLE</div>
+    </div>
+
+    <!-- Strategy readout -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;margin-bottom:1.2rem;">
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:0.9rem;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--blue);text-transform:uppercase;letter-spacing:1px;margin-bottom:0.5rem;">🏠 Account 1 — HomeDecor</div>
+        <div id="mm-a1-strategy" style="font-size:0.78rem;font-weight:700;color:var(--text);min-height:20px;">—</div>
+        <div id="mm-a1-posted" style="font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--muted);margin-top:0.3rem;">Not posted yet</div>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:0.9rem;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--purple);text-transform:uppercase;letter-spacing:1px;margin-bottom:0.5rem;">💻 Account 2 — Tech</div>
+        <div id="mm-a2-strategy" style="font-size:0.78rem;font-weight:700;color:var(--text);min-height:20px;">—</div>
+        <div id="mm-a2-posted" style="font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--muted);margin-top:0.3rem;">Not posted yet</div>
+      </div>
+    </div>
+
+    <!-- Run button -->
+    <button class="btn" id="btn-mastermind" onclick="runMastermind()"
+      style="width:100%;padding:1rem;font-size:1rem;background:linear-gradient(135deg,rgba(155,93,229,0.2),rgba(230,57,70,0.15));color:var(--purple);border:1px solid rgba(155,93,229,0.4);margin-bottom:0.8rem;">
+      🧠 Run Mastermind CEO Cycle
+    </button>
+
+    <!-- Fallback indicator + summary -->
+    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--muted);">Last run: <span id="mm-last-run" style="color:var(--text);">Never</span></div>
+      <div id="mm-fallback-badge" style="display:none;font-family:'JetBrains Mono',monospace;font-size:0.58rem;padding:0.15rem 0.5rem;border-radius:20px;background:rgba(244,162,97,0.1);color:var(--accent2);border:1px solid rgba(244,162,97,0.3);">⚠️ Fallback Active</div>
+    </div>
+    <div class="summary-box" id="mm-summary-box" style="font-size:0.7rem;white-space:pre-wrap;min-height:60px;">Awaiting Mastermind cycle...</div>
+  </div>
+
+  <!-- ── Products Pipeline ── -->
   <div class="card" style="padding:0; overflow:hidden;">
     <div class="card-header" style="padding:1.2rem 1.5rem; margin:0; border-bottom:1px solid var(--border);">
       <div class="section-title">Products Pipeline</div>
@@ -267,10 +309,84 @@ async function loadProducts(){
 function startPolling(){ if(!polling) polling = setInterval(()=>{loadStats(); loadProducts();}, 3000); }
 function stopPolling(){ if(polling){ clearInterval(polling); polling=null; } }
 
+// ── Mastermind CEO ────────────────────────────────────────────────────────────
+let mmPolling = null;
+
+async function runMastermind(){
+  const btn = document.getElementById('btn-mastermind');
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Mastermind Thinking...';
+  try {
+    const r = await fetch(API_BASE + 'api/mastermind/run', { method: 'POST' });
+    const d = await r.json();
+    if(d.status === 'busy'){
+      showToast('⚠️ Mastermind already running!', 'var(--accent2)');
+    } else {
+      showToast('🧠 Mastermind CEO cycle started!', 'var(--purple)');
+      startMmPolling();
+    }
+  } catch(e) {
+    showToast('❌ Failed to start Mastermind', 'var(--accent)');
+  } finally {
+    btn.innerHTML = orig;
+    btn.disabled = false;
+  }
+}
+
+async function loadMastermindStats(){
+  try {
+    const r = await fetch(API_BASE + 'api/mastermind/stats');
+    const d = await r.json();
+
+    const badge = document.getElementById('mastermind-status-badge');
+    const btn   = document.getElementById('btn-mastermind');
+    if(d.running){
+      badge.textContent = 'RUNNING...';
+      badge.className = 'agent-status running';
+      btn.disabled = true;
+    } else {
+      badge.textContent = 'IDLE';
+      badge.className = 'agent-status idle';
+      badge.style.color = 'var(--purple)';
+      btn.disabled = false;
+      stopMmPolling();
+    }
+
+    document.getElementById('mm-last-run').textContent = d.last_run || 'Never';
+
+    const a1El = document.getElementById('mm-a1-strategy');
+    const a2El = document.getElementById('mm-a2-strategy');
+    if(d.a1_strategy && d.a1_strategy !== '—') a1El.textContent = d.a1_strategy;
+    if(d.a2_strategy && d.a2_strategy !== '—') a2El.textContent = d.a2_strategy;
+
+    document.getElementById('mm-a1-posted').textContent = d.a1_posted ? '✅ Posted' : '— Not posted';
+    document.getElementById('mm-a2-posted').textContent = d.a2_posted ? '✅ Posted' : '— Not posted';
+    document.getElementById('mm-a1-posted').style.color = d.a1_posted ? 'var(--green)' : 'var(--muted)';
+    document.getElementById('mm-a2-posted').style.color = d.a2_posted ? 'var(--green)' : 'var(--muted)';
+
+    const fbBadge = document.getElementById('mm-fallback-badge');
+    fbBadge.style.display = d.fallback ? 'inline-flex' : 'none';
+
+    const box = document.getElementById('mm-summary-box');
+    if(d.summary && d.summary !== 'Not run yet'){
+      box.textContent = d.summary;
+      box.className = d.summary.includes('Error') ? 'summary-box error' : 'summary-box success';
+    }
+  } catch(e) {
+    console.error('Mastermind stats error:', e);
+  }
+}
+
+function startMmPolling(){ if(!mmPolling) mmPolling = setInterval(loadMastermindStats, 3000); }
+function stopMmPolling(){ if(mmPolling){ clearInterval(mmPolling); mmPolling=null; } }
+
 window.onload = () => {
   loadStats();
   loadProducts();
+  loadMastermindStats();
   setInterval(loadStats, 30000);
+  setInterval(loadMastermindStats, 30000);
 };
 </script>
 </body>
