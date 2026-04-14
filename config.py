@@ -22,6 +22,13 @@ GEMINI_API_KEY          = os.getenv("GEMINI_API_KEY")
 ANALYTICS_SHEET_ACC1    = "Analytics_Log"    # Account 1 — HomeDecor
 ANALYTICS_SHEET_ACC2    = "Analytics_logs2"  # Account 2 — Tech
 
+# Image generation model — update to gemini-2.5-flash-preview-image-generation
+# when it becomes GA.  Tenacity fallback protects the pipeline if unavailable.
+GEMINI_IMAGE_MODEL      = os.getenv(
+    "GEMINI_IMAGE_MODEL",
+    "gemini-2.0-flash-preview-image-generation",
+)
+
 PINTEREST_ACCOUNTS = [
     {
         "name":        "Account1_HomeDecor",
