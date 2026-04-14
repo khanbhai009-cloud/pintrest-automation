@@ -172,7 +172,7 @@ def _call_gemini_sync(prompt: str) -> str:
     if not _gemini_client:
         raise ValueError("GEMINI_API_KEY is not configured.")
     response = _gemini_client.models.generate_content(
-        model="gemini-1.5-flash",
+        model="gemini-2.5-flash-lite",
         contents=prompt,
         config=genai_types.GenerateContentConfig(temperature=0.3),
     )
