@@ -9,8 +9,8 @@ from config import GROQ_API_KEY, CEREBRAS_API_KEY, GROQ_MODEL, CEREBRAS_MODEL
 
 logger = logging.getLogger(__name__)
 
-groq_client     = Groq(api_key=GROQ_API_KEY)
-cerebras_client = Cerebras(api_key=CEREBRAS_API_KEY)
+groq_client     = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+cerebras_client = Cerebras(api_key=CEREBRAS_API_KEY) if CEREBRAS_API_KEY else None
 
 
 def chat(prompt: str, system: str = "", temperature: float = 0.7) -> str:
@@ -24,28 +24,31 @@ def chat(prompt: str, system: str = "", temperature: float = 0.7) -> str:
     messages.append({"role": "user", "content": prompt})
 
     # ── Try Groq first ──────────────────────────────────────
-    try:
-        response = groq_client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=messages,
-            temperature=temperature,
-        )
-        logger.info("✅ LLM: Groq responded")
-        return response.choices[0].message.content
+    if groq_client:
+        try:
+            response = groq_client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=messages,
+                temperature=temperature,
+            )
+            logger.info("✅ LLM: Groq responded")
+            return response.choices[0].message.content
 
-    except Exception as e:
-        logger.warning(f"⚠️ Groq failed ({e}) — switching to Cerebras")
+        except Exception as e:
+            logger.warning(f"⚠️ Groq failed ({e}) — switching to Cerebras")
 
     # ── Fallback: Cerebras ──────────────────────────────────
-    try:
-        response = cerebras_client.chat.completions.create(
-            model=CEREBRAS_MODEL,
-            messages=messages,
-            temperature=temperature,
-        )
-        logger.info("✅ LLM: Cerebras responded")
-        return response.choices[0].message.content
+    if cerebras_client:
+        try:
+            response = cerebras_client.chat.completions.create(
+                model=CEREBRAS_MODEL,
+                messages=messages,
+                temperature=temperature,
+            )
+            logger.info("✅ LLM: Cerebras responded")
+            return response.choices[0].message.content
 
-    except Exception as e:
-        logger.error(f"❌ Both LLMs failed: {e}")
-        return "Sorry, AI service temporarily unavailable. Try again in a moment."
+        except Exception as e:
+            logger.error(f"❌ Both LLMs failed: {e}")
+
+    return "Sorry, AI service temporarily unavailable. Configure API keys to enable."

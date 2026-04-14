@@ -194,6 +194,15 @@ async def ai_chat(msg: ChatMessage):
     except Exception:
         return {"response": "Kuch error aaya bhai!", "status": "error"}
 
+@app.get("/api/products")
+async def get_products():
+    try:
+        all_p = get_all_products()
+        return {"products": all_p}
+    except Exception as e:
+        logger.error(f"Error fetching products: {e}")
+        return {"products": []}
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=7860)
+    uvicorn.run(app, host="0.0.0.0", port=5000)

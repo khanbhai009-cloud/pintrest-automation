@@ -109,9 +109,12 @@ async def publish_next_pin(niche: str) -> dict:
 # 🔥 REMOVED get_trending_keyword FROM HERE
 ALL_TOOLS = [fill_missing_niches, analyze_niche_stock, fetch_aliexpress_products, publish_next_pin]
 
-primary_llm = ChatGroq(api_key=GROQ_API_KEY, model=GROQ_MODEL, temperature=0.1).bind_tools(ALL_TOOLS)
-fallback_llm = ChatOpenAI(api_key=CEREBRAS_API_KEY, base_url="https://api.cerebras.ai/v1", model=CEREBRAS_MODEL, temperature=0.1).bind_tools(ALL_TOOLS)
-llm = primary_llm.with_fallbacks([fallback_llm])
+def _build_llm():
+    _primary = ChatGroq(api_key=GROQ_API_KEY or "placeholder", model=GROQ_MODEL, temperature=0.1).bind_tools(ALL_TOOLS)
+    _fallback = ChatOpenAI(api_key=CEREBRAS_API_KEY or "placeholder", base_url="https://api.cerebras.ai/v1", model=CEREBRAS_MODEL, temperature=0.1).bind_tools(ALL_TOOLS)
+    return _primary.with_fallbacks([_fallback])
+
+llm = _build_llm()
 
 # 🔥 UPDATED PROTOCOL (No Step 3/Tavily)
 SYSTEM_PROMPT = f"""You are PINTERESTO. Follow this exact protocol:
