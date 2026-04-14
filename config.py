@@ -26,7 +26,7 @@ ANALYTICS_SHEET_ACC2    = "Analytics_logs2"  # Account 2 — Tech
 # when it becomes GA.  Tenacity fallback protects the pipeline if unavailable.
 GEMINI_IMAGE_MODEL      = os.getenv(
     "GEMINI_IMAGE_MODEL",
-    "gemini-2.0-flash-preview-image-generation",
+    "gemini-2.5-flash-image",
 )
 
 PINTEREST_ACCOUNTS = [
