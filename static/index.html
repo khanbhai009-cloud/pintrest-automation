@@ -3,196 +3,638 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pinteresto — Bot Control</title>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<title>Pinteresto — Finisher Tech AI</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0a0a0f;--surface:#111118;--border:#1e1e2e;--accent:#e63946;--accent2:#f4a261;--green:#2dc653;--blue:#4cc9f0;--purple:#9b5de5;--text:#e8e8f0;--muted:#555570;--card:#13131e}
-*{margin:0;padding:0;box-sizing:border-box}
-body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-height:100vh;overflow-x:hidden}
-body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(230,57,70,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(230,57,70,0.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
-.wrap{position:relative;z-index:1;max-width:960px;margin:0 auto;padding:2rem 1.2rem 4rem}
+/* ── Reset & Variables ─────────────────────────────────────────── */
+:root {
+  --bg:       #07080f;
+  --bg2:      #0d0f1c;
+  --surface:  rgba(255,255,255,0.04);
+  --border:   rgba(255,255,255,0.07);
+  --border2:  rgba(255,255,255,0.12);
+  --accent:   #7c3aed;
+  --accent2:  #a855f7;
+  --blue:     #3b82f6;
+  --cyan:     #22d3ee;
+  --green:    #22c55e;
+  --orange:   #f97316;
+  --red:      #ef4444;
+  --pink:     #ec4899;
+  --text:     #e2e8f0;
+  --text2:    #94a3b8;
+  --text3:    #475569;
+  --mono:     'JetBrains Mono', monospace;
+  --sans:     'Syne', sans-serif;
+  --radius:   14px;
+  --radius-sm:8px;
+}
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
 
-/* Header */
-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:2rem;padding-bottom:1.5rem;border-bottom:1px solid var(--border)}
-.logo{display:flex;align-items:center;gap:0.75rem}
-.logo-icon{width:36px;height:36px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px}
-.logo-text{font-size:1.4rem;font-weight:800;letter-spacing:-0.5px}
-.logo-text span{color:var(--accent)}
-.live-badge{display:flex;align-items:center;gap:0.4rem;background:rgba(45,198,83,0.1);border:1px solid rgba(45,198,83,0.25);color:var(--green);padding:0.3rem 0.8rem;border-radius:20px;font-family:'JetBrains Mono',monospace;font-size:0.72rem;font-weight:600}
-.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.8)}}
+/* ── Animated Background ──────────────────────────────────────── */
+.bg-grid {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(124,58,237,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(124,58,237,0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+.bg-orb {
+  position: fixed; border-radius: 50%; filter: blur(80px);
+  pointer-events: none; z-index: 0; opacity: 0.18;
+  animation: float 12s ease-in-out infinite;
+}
+.orb1 { width:500px; height:500px; background:#7c3aed; top:-200px; right:-100px; animation-delay: 0s; }
+.orb2 { width:400px; height:400px; background:#3b82f6; bottom:-150px; left:-100px; animation-delay: 4s; }
+.orb3 { width:300px; height:300px; background:#22d3ee; top:40%; left:30%; animation-delay: 8s; }
+@keyframes float {
+  0%,100% { transform: translate(0,0) scale(1); }
+  33%      { transform: translate(30px,-30px) scale(1.05); }
+  66%      { transform: translate(-20px,20px) scale(0.95); }
+}
 
-/* Stats */
-.stats-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem;margin-bottom:1.5rem}
-@media(min-width:600px){.stats-grid{grid-template-columns:repeat(4,1fr)}}
-.stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1.2rem;position:relative;overflow:hidden;transition:border-color 0.2s}
-.stat-card:hover{border-color:var(--accent)}
-.stat-label{font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:0.5rem}
-.stat-value{font-size:2rem;font-weight:800;line-height:1}
-.stat-value.green{color:var(--green)}.stat-value.accent{color:var(--accent)}.stat-value.orange{color:var(--accent2)}.stat-value.blue{color:var(--blue)}
+/* ── Layout ───────────────────────────────────────────────────── */
+.app { position:relative; z-index:1; display:flex; flex-direction:column; min-height:100vh; }
+.container { max-width: 1280px; margin: 0 auto; padding: 0 1.5rem; width: 100%; }
 
-/* Section Title */
-.section-title{font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted)}
+/* ── Header ───────────────────────────────────────────────────── */
+header {
+  padding: 1.2rem 0;
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(20px);
+  background: rgba(7,8,15,0.8);
+  position: sticky; top: 0; z-index: 100;
+}
+.header-inner {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+}
+.logo { display:flex; align-items:center; gap:0.75rem; }
+.logo-mark {
+  width:38px; height:38px; border-radius:10px;
+  background: linear-gradient(135deg, #7c3aed, #3b82f6);
+  display:flex; align-items:center; justify-content:center;
+  font-size:18px; box-shadow:0 0 20px rgba(124,58,237,0.4);
+}
+.logo-name { font-size:1.3rem; font-weight:800; letter-spacing:-0.5px; }
+.logo-name span { background:linear-gradient(135deg,#a855f7,#3b82f6); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+.logo-sub { font-family:var(--mono); font-size:0.6rem; color:var(--text3); margin-top:1px; letter-spacing:1px; }
 
-/* Cards & Controls */
-.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:1.5rem;margin-bottom:1.2rem}
-.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.2rem}
-.control-group{margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px dashed var(--border);}
-.control-group:last-child{border-bottom: none; margin-bottom: 0; padding-bottom: 0;}
-.control-group-title{font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:var(--muted);margin-bottom:0.8rem;text-transform:uppercase;}
+.header-right { display:flex; align-items:center; gap:0.75rem; }
+.live-pill {
+  display:flex; align-items:center; gap:0.4rem;
+  background:rgba(34,197,94,0.08); border:1px solid rgba(34,197,94,0.2);
+  color:var(--green); padding:0.3rem 0.8rem; border-radius:100px;
+  font-family:var(--mono); font-size:0.65rem; font-weight:600;
+}
+.live-dot { width:6px; height:6px; border-radius:50%; background:var(--green); animation:pulse-dot 2s infinite; }
+@keyframes pulse-dot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.7)} }
 
-/* Status Badge */
-.agent-status{font-family:'JetBrains Mono',monospace;font-size:0.72rem;padding:0.25rem 0.7rem;border-radius:20px;font-weight:600}
-.agent-status.idle{background:rgba(85,85,112,0.2);color:var(--muted);border:1px solid var(--border)}
-.agent-status.running{background:rgba(244,162,97,0.1);color:var(--accent2);border:1px solid rgba(244,162,97,0.3);animation:blink 1.5s infinite}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:0.5}}
+.system-clock {
+  font-family:var(--mono); font-size:0.65rem; color:var(--text3);
+  background:var(--surface); border:1px solid var(--border);
+  padding:0.3rem 0.8rem; border-radius:100px;
+}
 
-/* Buttons */
-.btn{border:none;border-radius:10px;font-family:'Syne',sans-serif;font-weight:700;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:0.5rem}
-.btn:disabled{opacity:0.45;cursor:not-allowed;transform:none!important;box-shadow:none!important}
-.btn-full{width:100%;padding:1rem;font-size:1rem;background:var(--accent);color:#fff;margin-bottom:0.8rem}
-.btn-full:hover:not(:disabled){background:#c1121f;transform:translateY(-1px);box-shadow:0 8px 24px rgba(230,57,70,0.35)}
-.btn-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;margin-bottom:0.8rem}
-.btn-account1{padding:0.85rem;font-size:0.88rem;background:rgba(76,201,240,0.12);color:var(--blue);border:1px solid rgba(76,201,240,0.25)}
-.btn-account1:hover:not(:disabled){background:rgba(76,201,240,0.22);transform:translateY(-1px)}
-.btn-account2{padding:0.85rem;font-size:0.88rem;background:rgba(155,93,229,0.12);color:var(--purple);border:1px solid rgba(155,93,229,0.25)}
-.btn-account2:hover:not(:disabled){background:rgba(155,93,229,0.22);transform:translateY(-1px)}
-.btn-sm{padding:0.75rem;font-size:0.82rem}
-.btn-fetch{background:rgba(244,162,97,0.12);color:var(--accent2);border:1px solid rgba(244,162,97,0.25)}
-.btn-fetch:hover:not(:disabled){background:rgba(244,162,97,0.22)}
-.btn-publish{background:rgba(45,198,83,0.12);color:var(--green);border:1px solid rgba(45,198,83,0.25)}
-.btn-publish:hover:not(:disabled){background:rgba(45,198,83,0.22)}
+/* ── Main Grid ────────────────────────────────────────────────── */
+.main-content { padding: 2rem 0 0; flex: 1; }
+.grid-top { display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-bottom:1.5rem; }
+.grid-mid { display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-bottom:1.5rem; }
+@media (max-width: 900px) {
+  .grid-top, .grid-mid { grid-template-columns:1fr; }
+}
 
-/* Products */
-.products-list{max-height:380px;overflow-y:auto}
-.products-list::-webkit-scrollbar{width:4px}
-.products-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
-.product-row{display:flex;align-items:center;gap:1rem;padding:0.9rem 1.5rem;border-bottom:1px solid var(--border)}
-.product-img{width:40px;height:40px;border-radius:6px;object-fit:cover;background:var(--border);flex-shrink:0}
-.product-info{flex:1;min-width:0}
-.product-name{font-size:0.82rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:0.2rem}
-.product-meta{font-family:'JetBrains Mono',monospace;font-size:0.63rem;color:var(--muted)}
-.status-badge{font-family:'JetBrains Mono',monospace;font-size:0.6rem;font-weight:600;padding:0.2rem 0.55rem;border-radius:20px}
-.status-PENDING{background:rgba(244,162,97,0.1);color:var(--accent2);border:1px solid rgba(244,162,97,0.25)}
-.status-POSTED{background:rgba(45,198,83,0.1);color:var(--green);border:1px solid rgba(45,198,83,0.25)}
+/* ── Glass Card ───────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  backdrop-filter: blur(12px);
+  overflow: hidden;
+}
+.card-head {
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 1.2rem 1.4rem;
+  border-bottom: 1px solid var(--border);
+}
+.card-title {
+  display:flex; align-items:center; gap:0.6rem;
+  font-size:0.8rem; font-weight:700; letter-spacing:1px;
+  text-transform:uppercase; color:var(--text2);
+}
+.card-body { padding: 1.4rem; }
 
-/* Summary & Toast */
-.summary-box{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:0.8rem 1rem;font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:var(--muted);min-height:50px;}
-.summary-box.success{color:var(--green)}.summary-box.error{color:var(--accent)}
-.spinner{display:inline-block;width:13px;height:13px;border:2px solid rgba(255,255,255,0.25);border-top-color:#fff;border-radius:50%;animation:spin 0.6s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.toast{position:fixed;bottom:1.5rem;right:1.5rem;background:var(--card);border:1px solid var(--border);color:var(--text);padding:0.7rem 1.2rem;border-radius:10px;font-family:'JetBrains Mono',monospace;font-size:0.75rem;z-index:999;transform:translateY(80px);opacity:0;transition:all 0.3s}
-.toast.show{transform:translateY(0);opacity:1}
+/* ── Stats Strip ──────────────────────────────────────────────── */
+.stats-strip { display:grid; grid-template-columns:repeat(4,1fr); gap:1rem; margin-bottom:1.5rem; }
+@media(max-width:700px) { .stats-strip { grid-template-columns:repeat(2,1fr); } }
+.stat-box {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius); padding:1.2rem 1.4rem;
+  position:relative; overflow:hidden;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.stat-box:hover { border-color:var(--border2); transform:translateY(-2px); }
+.stat-box::before {
+  content:''; position:absolute; inset:0;
+  background:linear-gradient(135deg, currentColor 0%, transparent 60%);
+  opacity:0.04;
+}
+.stat-label { font-family:var(--mono); font-size:0.6rem; color:var(--text3); text-transform:uppercase; letter-spacing:1.5px; margin-bottom:0.6rem; }
+.stat-val { font-size:2.2rem; font-weight:800; line-height:1; }
+.stat-val.c-orange { color:var(--orange); }
+.stat-val.c-green  { color:var(--green); }
+.stat-val.c-blue   { color:var(--blue); }
+.stat-val.c-purple { color:var(--accent2); }
+.stat-sub { font-family:var(--mono); font-size:0.6rem; color:var(--text3); margin-top:0.4rem; }
+
+/* ── Status Badge ─────────────────────────────────────────────── */
+.badge {
+  font-family:var(--mono); font-size:0.62rem; font-weight:600;
+  padding:0.25rem 0.7rem; border-radius:100px;
+  display:inline-flex; align-items:center; gap:0.35rem;
+}
+.badge-idle    { background:rgba(71,85,105,0.2); color:var(--text3); border:1px solid var(--border); }
+.badge-running { background:rgba(249,115,22,0.1); color:var(--orange); border:1px solid rgba(249,115,22,0.3); animation:blink 1.5s infinite; }
+.badge-success { background:rgba(34,197,94,0.1); color:var(--green); border:1px solid rgba(34,197,94,0.25); }
+.badge-warn    { background:rgba(249,115,22,0.1); color:var(--orange); border:1px solid rgba(249,115,22,0.3); }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.55} }
+
+/* ── Buttons ──────────────────────────────────────────────────── */
+.btn {
+  border:none; border-radius:var(--radius-sm); font-family:var(--sans);
+  font-weight:700; cursor:pointer; transition:all 0.18s;
+  display:inline-flex; align-items:center; justify-content:center; gap:0.5rem;
+  font-size:0.82rem; padding:0.75rem 1.1rem; white-space:nowrap;
+}
+.btn:disabled { opacity:0.4; cursor:not-allowed; transform:none !important; box-shadow:none !important; }
+.btn:not(:disabled):hover { transform:translateY(-1px); }
+
+.btn-primary { background:linear-gradient(135deg,#7c3aed,#6d28d9); color:#fff; box-shadow:0 4px 16px rgba(124,58,237,0.35); }
+.btn-primary:not(:disabled):hover { box-shadow:0 6px 24px rgba(124,58,237,0.5); }
+.btn-blue    { background:rgba(59,130,246,0.15); color:var(--blue); border:1px solid rgba(59,130,246,0.3); }
+.btn-blue:not(:disabled):hover { background:rgba(59,130,246,0.25); }
+.btn-purple  { background:rgba(168,85,247,0.12); color:var(--accent2); border:1px solid rgba(168,85,247,0.3); }
+.btn-purple:not(:disabled):hover { background:rgba(168,85,247,0.22); }
+.btn-green   { background:rgba(34,197,94,0.12); color:var(--green); border:1px solid rgba(34,197,94,0.3); }
+.btn-green:not(:disabled):hover { background:rgba(34,197,94,0.22); }
+.btn-orange  { background:rgba(249,115,22,0.12); color:var(--orange); border:1px solid rgba(249,115,22,0.3); }
+.btn-orange:not(:disabled):hover { background:rgba(249,115,22,0.22); }
+.btn-red     { background:rgba(239,68,68,0.1); color:var(--red); border:1px solid rgba(239,68,68,0.25); }
+.btn-red:not(:disabled):hover { background:rgba(239,68,68,0.2); }
+.btn-ghost   { background:transparent; color:var(--text2); border:1px solid var(--border); }
+.btn-ghost:not(:disabled):hover { background:var(--surface); border-color:var(--border2); }
+.btn-full { width:100%; }
+.btn-sm  { padding:0.55rem 0.9rem; font-size:0.76rem; }
+.btn-xs  { padding:0.35rem 0.7rem; font-size:0.68rem; border-radius:6px; }
+
+.btn-grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:0.7rem; }
+.btn-grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.6rem; }
+
+/* ── Spinner ──────────────────────────────────────────────────── */
+.spinner {
+  width:13px; height:13px; border-radius:50%;
+  border:2px solid rgba(255,255,255,0.2);
+  border-top-color:currentColor;
+  animation:spin 0.65s linear infinite; display:inline-block; flex-shrink:0;
+}
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* ── Controls Section ─────────────────────────────────────────── */
+.control-section { margin-bottom:1.2rem; padding-bottom:1.2rem; border-bottom:1px solid var(--border); }
+.control-section:last-child { margin-bottom:0; padding-bottom:0; border-bottom:none; }
+.ctrl-label { font-family:var(--mono); font-size:0.62rem; color:var(--text3); text-transform:uppercase; letter-spacing:1.5px; margin-bottom:0.7rem; display:block; }
+
+/* ── CMO Strategy Display ─────────────────────────────────────── */
+.strategy-grid { display:grid; grid-template-columns:1fr 1fr; gap:0.8rem; margin-bottom:1.2rem; }
+.strategy-box {
+  background:rgba(0,0,0,0.3); border:1px solid var(--border);
+  border-radius:var(--radius-sm); padding:1rem;
+}
+.strategy-acct { font-family:var(--mono); font-size:0.58rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:0.5rem; }
+.strategy-name { font-size:0.82rem; font-weight:700; min-height:20px; }
+.strategy-posted { font-family:var(--mono); font-size:0.6rem; color:var(--text3); margin-top:0.3rem; }
+
+/* ── Summary Box ──────────────────────────────────────────────── */
+.summary-box {
+  background:rgba(0,0,0,0.3); border:1px solid var(--border);
+  border-radius:var(--radius-sm); padding:0.9rem 1rem;
+  font-family:var(--mono); font-size:0.7rem; color:var(--text2);
+  min-height:52px; white-space:pre-wrap; word-break:break-all;
+  line-height:1.6;
+}
+.summary-box.ok  { color:var(--green); border-color:rgba(34,197,94,0.2); }
+.summary-box.err { color:var(--red);   border-color:rgba(239,68,68,0.2); }
+
+/* ── Scheduled Slots ──────────────────────────────────────────── */
+.slots-wrap { display:flex; flex-wrap:wrap; gap:0.4rem; margin-top:0.8rem; }
+.slot-pill {
+  font-family:var(--mono); font-size:0.6rem; color:var(--text2);
+  background:rgba(255,255,255,0.04); border:1px solid var(--border);
+  padding:0.2rem 0.55rem; border-radius:100px;
+}
+
+/* ── Chat Interface ───────────────────────────────────────────── */
+.chat-section {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius); overflow:hidden; margin-bottom:1.5rem;
+}
+.chat-head {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:1rem 1.4rem; border-bottom:1px solid var(--border);
+  background:rgba(124,58,237,0.05);
+}
+.chat-identity { display:flex; align-items:center; gap:0.75rem; }
+.chat-avatar {
+  width:36px; height:36px; border-radius:10px;
+  background:linear-gradient(135deg,#7c3aed,#3b82f6);
+  display:flex; align-items:center; justify-content:center;
+  font-size:17px; box-shadow:0 0 16px rgba(124,58,237,0.4);
+  flex-shrink:0;
+}
+.chat-name { font-size:0.9rem; font-weight:700; }
+.chat-desc { font-family:var(--mono); font-size:0.58rem; color:var(--text3); margin-top:1px; }
+
+.chat-messages {
+  height:380px; overflow-y:auto; padding:1.4rem;
+  display:flex; flex-direction:column; gap:1rem;
+}
+.chat-messages::-webkit-scrollbar { width:4px; }
+.chat-messages::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+
+.msg { display:flex; gap:0.75rem; align-items:flex-start; max-width:85%; }
+.msg.user { align-self:flex-end; flex-direction:row-reverse; }
+.msg-avatar {
+  width:30px; height:30px; border-radius:8px; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center; font-size:14px;
+}
+.msg.ai .msg-avatar { background:linear-gradient(135deg,#7c3aed,#3b82f6); }
+.msg.user .msg-avatar { background:rgba(255,255,255,0.08); border:1px solid var(--border2); }
+
+.msg-bubble {
+  padding:0.75rem 1rem; border-radius:12px;
+  font-size:0.82rem; line-height:1.55;
+}
+.msg.ai .msg-bubble {
+  background:rgba(124,58,237,0.1); border:1px solid rgba(124,58,237,0.2);
+  border-top-left-radius:4px; color:var(--text);
+}
+.msg.user .msg-bubble {
+  background:rgba(255,255,255,0.06); border:1px solid var(--border2);
+  border-top-right-radius:4px; color:var(--text);
+}
+.msg-action {
+  font-family:var(--mono); font-size:0.6rem; color:var(--accent2);
+  margin-top:0.4rem; padding-top:0.4rem; border-top:1px solid rgba(168,85,247,0.2);
+}
+.msg-time { font-family:var(--mono); font-size:0.58rem; color:var(--text3); margin-top:0.35rem; }
+
+.typing-indicator { display:flex; align-items:center; gap:0.35rem; }
+.typing-dot {
+  width:6px; height:6px; border-radius:50%; background:var(--accent2);
+  animation:typing 1.2s ease-in-out infinite;
+}
+.typing-dot:nth-child(2) { animation-delay:0.2s; }
+.typing-dot:nth-child(3) { animation-delay:0.4s; }
+@keyframes typing { 0%,60%,100%{transform:translateY(0);opacity:0.4} 30%{transform:translateY(-5px);opacity:1} }
+
+.chat-input-area {
+  padding:1rem 1.4rem; border-top:1px solid var(--border);
+  background:rgba(0,0,0,0.2);
+}
+.chat-input-wrap { display:flex; gap:0.7rem; align-items:flex-end; }
+.chat-input {
+  flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--border2);
+  border-radius:10px; padding:0.75rem 1rem; color:var(--text);
+  font-family:var(--sans); font-size:0.82rem; resize:none; outline:none;
+  transition:border-color 0.2s; line-height:1.5;
+  min-height:44px; max-height:120px;
+}
+.chat-input:focus { border-color:rgba(124,58,237,0.5); }
+.chat-input::placeholder { color:var(--text3); }
+.chat-send {
+  background:linear-gradient(135deg,#7c3aed,#6d28d9);
+  color:#fff; border:none; border-radius:10px;
+  width:44px; height:44px; cursor:pointer; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+  font-size:16px; transition:all 0.18s;
+  box-shadow:0 4px 12px rgba(124,58,237,0.35);
+}
+.chat-send:hover { box-shadow:0 6px 20px rgba(124,58,237,0.5); transform:translateY(-1px); }
+.chat-send:disabled { opacity:0.4; cursor:not-allowed; transform:none; box-shadow:none; }
+
+.chat-suggestions { display:flex; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.8rem; }
+.suggestion {
+  font-family:var(--mono); font-size:0.65rem; color:var(--accent2);
+  background:rgba(168,85,247,0.08); border:1px solid rgba(168,85,247,0.2);
+  padding:0.3rem 0.7rem; border-radius:100px; cursor:pointer; transition:all 0.15s;
+}
+.suggestion:hover { background:rgba(168,85,247,0.18); border-color:rgba(168,85,247,0.4); }
+
+/* ── Products ─────────────────────────────────────────────────── */
+.products-section {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius); overflow:hidden; margin-bottom:3rem;
+}
+.products-head {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:1rem 1.4rem; border-bottom:1px solid var(--border);
+}
+.products-list { max-height:320px; overflow-y:auto; }
+.products-list::-webkit-scrollbar { width:4px; }
+.products-list::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+.product-row {
+  display:flex; align-items:center; gap:1rem;
+  padding:0.85rem 1.4rem; border-bottom:1px solid var(--border);
+  transition:background 0.15s;
+}
+.product-row:hover { background:rgba(255,255,255,0.02); }
+.product-row:last-child { border-bottom:none; }
+.product-img { width:38px; height:38px; border-radius:6px; object-fit:cover; background:var(--border); flex-shrink:0; }
+.product-info { flex:1; min-width:0; }
+.product-name { font-size:0.8rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.product-meta { font-family:var(--mono); font-size:0.6rem; color:var(--text3); margin-top:0.2rem; }
+.status-pill { font-family:var(--mono); font-size:0.58rem; font-weight:600; padding:0.2rem 0.6rem; border-radius:100px; }
+.status-PENDING { background:rgba(249,115,22,0.1); color:var(--orange); border:1px solid rgba(249,115,22,0.25); }
+.status-POSTED  { background:rgba(34,197,94,0.1);  color:var(--green);  border:1px solid rgba(34,197,94,0.25); }
+
+/* ── Toast ────────────────────────────────────────────────────── */
+.toast {
+  position:fixed; bottom:1.5rem; right:1.5rem; z-index:999;
+  background:var(--bg2); border:1px solid var(--border2); color:var(--text);
+  padding:0.7rem 1.2rem; border-radius:var(--radius-sm);
+  font-family:var(--mono); font-size:0.72rem;
+  transform:translateY(80px); opacity:0; transition:all 0.28s;
+  max-width:320px;
+}
+.toast.show { transform:translateY(0); opacity:1; }
+
+/* ── Separator & Misc ─────────────────────────────────────────── */
+.sep { height:1px; background:var(--border); margin:1.1rem 0; }
+.tag { display:inline-flex; align-items:center; gap:0.3rem; font-family:var(--mono); font-size:0.6rem; padding:0.2rem 0.55rem; border-radius:100px; }
+.tag-purple { background:rgba(168,85,247,0.1); color:var(--accent2); border:1px solid rgba(168,85,247,0.2); }
+.tag-blue   { background:rgba(59,130,246,0.1);  color:var(--blue);   border:1px solid rgba(59,130,246,0.2); }
+.tag-red    { background:rgba(239,68,68,0.1);   color:var(--red);    border:1px solid rgba(239,68,68,0.2); }
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="bg-grid"></div>
+<div class="bg-orb orb1"></div>
+<div class="bg-orb orb2"></div>
+<div class="bg-orb orb3"></div>
+
+<div class="app">
+
+  <!-- ── HEADER ─────────────────────────────────────────────────── -->
   <header>
-    <div class="logo">
-      <div class="logo-icon">📌</div><div class="logo-text">Pinter<span>esto</span></div>
-    </div>
-    <div class="live-badge"><div class="live-dot"></div>LIVE</div>
-  </header>
-
-  <div class="stats-grid">
-    <div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value orange" id="stat-pending">—</div></div>
-    <div class="stat-card"><div class="stat-label">Posted</div><div class="stat-value green" id="stat-posted">—</div></div>
-    <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value blue" id="stat-total">—</div></div>
-    <div class="stat-card"><div class="stat-label">Today</div><div class="stat-value accent" id="stat-today">—</div></div>
-  </div>
-
-  <div class="card">
-    <div class="card-header">
-      <div class="section-title">Operations Center</div>
-      <div class="agent-status idle" id="agent-status-badge">IDLE</div>
-    </div>
-
-    <div class="control-group">
-      <div class="control-group-title">Master Control</div>
-      <button class="btn btn-full" id="btn-run" onclick="apiCall('api/run-agent', 'btn-run', 'Full Agent')">
-        ▶ Run Full Automation (Both Accounts)
-      </button>
-    </div>
-
-    <div class="control-group">
-      <div class="control-group-title">Individual Accounts Control</div>
-      <div class="btn-grid">
-        <button class="btn btn-account1" id="btn-acc1" onclick="apiCall('api/run-account1', 'btn-acc1', 'Account 1 Pin')">
-          🏠 Post Only — Account 1
-        </button>
-        <button class="btn btn-account2" id="btn-acc2" onclick="apiCall('api/run-account2', 'btn-acc2', 'Account 2 Pin')">
-          💻 Post Only — Account 2
-        </button>
-      </div>
-    </div>
-
-    <div class="control-group">
-      <div class="control-group-title">Utilities</div>
-      <div class="btn-grid">
-        <button class="btn btn-sm btn-fetch" id="btn-fetch" onclick="apiCall('api/fetch-products', 'btn-fetch', 'Fetch Products')">
-          🛒 Fetch Products
-        </button>
-        <button class="btn btn-sm btn-publish" id="btn-publish" onclick="apiCall('api/fill-niches', 'btn-publish', 'Fill Niches')">
-          🏷️ Detect & Fill Niches
-        </button>
-      </div>
-    </div>
-
-    <div style="margin-top:1rem">
-      <div class="stat-label">Last Action: <span id="action-label" style="color:var(--blue)">—</span></div>
-      <div class="summary-box" id="summary-box">Waiting for run...</div>
-    </div>
-  </div>
-
-  <!-- ── Mastermind CEO System ── -->
-  <div class="card" style="margin-bottom:1.2rem; border-color: rgba(155,93,229,0.4);">
-    <div class="card-header">
-      <div style="display:flex;align-items:center;gap:0.6rem;">
-        <div style="width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#9b5de5,#e63946);display:flex;align-items:center;justify-content:center;font-size:16px;">🧠</div>
-        <div>
-          <div class="section-title" style="color:var(--purple);">Mastermind CEO System</div>
-          <div style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--muted);margin-top:2px;">Gemini Strategy · Groq/Cerebras Copy · Isolated Accounts</div>
+    <div class="container">
+      <div class="header-inner">
+        <div class="logo">
+          <div class="logo-mark">📌</div>
+          <div>
+            <div class="logo-name">Pinter<span>esto</span></div>
+            <div class="logo-sub">FINISHER TECH AI · PINTEREST EMPIRE</div>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="live-pill"><div class="live-dot"></div>LIVE</div>
+          <div class="system-clock" id="clock">—</div>
         </div>
       </div>
-      <div class="agent-status idle" id="mastermind-status-badge" style="border-color:rgba(155,93,229,0.4);color:var(--purple);">IDLE</div>
     </div>
+  </header>
 
-    <!-- Strategy readout -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;margin-bottom:1.2rem;">
-      <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:0.9rem;">
-        <div style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--blue);text-transform:uppercase;letter-spacing:1px;margin-bottom:0.5rem;">🏠 Account 1 — HomeDecor</div>
-        <div id="mm-a1-strategy" style="font-size:0.78rem;font-weight:700;color:var(--text);min-height:20px;">—</div>
-        <div id="mm-a1-posted" style="font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--muted);margin-top:0.3rem;">Not posted yet</div>
+  <div class="main-content">
+    <div class="container">
+
+      <!-- ── STATS ──────────────────────────────────────────────── -->
+      <div class="stats-strip">
+        <div class="stat-box" style="--c:var(--orange)">
+          <div class="stat-label">Pending</div>
+          <div class="stat-val c-orange" id="s-pending">—</div>
+          <div class="stat-sub">Products ready to post</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Posted</div>
+          <div class="stat-val c-green" id="s-posted">—</div>
+          <div class="stat-sub">Total published</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Total Stock</div>
+          <div class="stat-val c-blue" id="s-total">—</div>
+          <div class="stat-sub">In Google Sheet</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Today</div>
+          <div class="stat-val c-purple" id="s-today">0</div>
+          <div class="stat-sub">Pins posted today</div>
+        </div>
       </div>
-      <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:0.9rem;">
-        <div style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--purple);text-transform:uppercase;letter-spacing:1px;margin-bottom:0.5rem;">💻 Account 2 — Tech</div>
-        <div id="mm-a2-strategy" style="font-size:0.78rem;font-weight:700;color:var(--text);min-height:20px;">—</div>
-        <div id="mm-a2-posted" style="font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--muted);margin-top:0.3rem;">Not posted yet</div>
+
+      <!-- ── TOP GRID: CONTROLS + CMO ──────────────────────────── -->
+      <div class="grid-top">
+
+        <!-- Controls Card -->
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">⚙️ Operations Center</div>
+            <div class="badge badge-idle" id="agent-badge">IDLE</div>
+          </div>
+          <div class="card-body">
+
+            <!-- Master Run -->
+            <div class="control-section">
+              <span class="ctrl-label">Master Control — Both Accounts</span>
+              <div class="btn-grid-2">
+                <button class="btn btn-primary btn-full" id="btn-run-both" onclick="runMM('both')">
+                  ▶ Run Full Cycle
+                </button>
+                <button class="btn btn-red btn-full" id="btn-stop-all" onclick="stopAll()">
+                  ⏹ Stop All
+                </button>
+              </div>
+            </div>
+
+            <!-- Account 1 -->
+            <div class="control-section">
+              <span class="ctrl-label">🏠 Account 1 — HomeDecor</span>
+              <div class="btn-grid-2">
+                <button class="btn btn-blue btn-sm" id="btn-run-a1" onclick="runMM('account1')">
+                  ▶ Run Account 1
+                </button>
+                <button class="btn btn-ghost btn-sm" onclick="stopAll()">
+                  ⏹ Stop
+                </button>
+              </div>
+            </div>
+
+            <!-- Account 2 -->
+            <div class="control-section">
+              <span class="ctrl-label">💻 Account 2 — Tech</span>
+              <div class="btn-grid-2">
+                <button class="btn btn-purple btn-sm" id="btn-run-a2" onclick="runMM('account2')">
+                  ▶ Run Account 2
+                </button>
+                <button class="btn btn-ghost btn-sm" onclick="stopAll()">
+                  ⏹ Stop
+                </button>
+              </div>
+            </div>
+
+            <!-- Utilities -->
+            <div class="control-section">
+              <span class="ctrl-label">Utilities</span>
+              <div class="btn-grid-3">
+                <button class="btn btn-orange btn-xs" id="btn-fetch" onclick="utilCall('fetch-products','btn-fetch','Fetching...')">
+                  🛒 Fetch
+                </button>
+                <button class="btn btn-green btn-xs" id="btn-niches" onclick="utilCall('fill-niches','btn-niches','Filling...')">
+                  🏷️ Niches
+                </button>
+                <button class="btn btn-ghost btn-xs" onclick="loadProducts()">
+                  ↻ Refresh
+                </button>
+              </div>
+            </div>
+
+            <!-- Last Action -->
+            <div style="margin-top:0.6rem;">
+              <div class="summary-box" id="agent-summary">Waiting for first run...</div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- CMO Mastermind Card -->
+        <div class="card" style="border-color:rgba(168,85,247,0.2)">
+          <div class="card-head">
+            <div class="card-title" style="color:var(--accent2)">
+              <span style="width:22px;height:22px;background:linear-gradient(135deg,#7c3aed,#ec4899);border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 0 12px rgba(124,58,237,0.4)">🧠</span>
+              CMO Mastermind
+            </div>
+            <div class="badge badge-idle" id="mm-badge" style="color:var(--accent2)">IDLE</div>
+          </div>
+          <div class="card-body">
+
+            <!-- Strategy display -->
+            <div class="strategy-grid">
+              <div class="strategy-box">
+                <div class="strategy-acct" style="color:var(--blue)">🏠 Account 1</div>
+                <div class="strategy-name" id="mm-a1-strat">—</div>
+                <div class="strategy-posted" id="mm-a1-posted">Not posted</div>
+              </div>
+              <div class="strategy-box">
+                <div class="strategy-acct" style="color:var(--accent2)">💻 Account 2</div>
+                <div class="strategy-name" id="mm-a2-strat">—</div>
+                <div class="strategy-posted" id="mm-a2-posted">Not posted</div>
+              </div>
+            </div>
+
+            <!-- CMO Run Buttons -->
+            <div class="control-section">
+              <span class="ctrl-label">CMO Triggers</span>
+              <button class="btn btn-full" id="btn-mm-both"
+                style="background:linear-gradient(135deg,rgba(124,58,237,0.25),rgba(236,72,153,0.15));color:var(--accent2);border:1px solid rgba(168,85,247,0.35);margin-bottom:0.7rem;"
+                onclick="runMM('both')">
+                🧠 Run CMO — Both Accounts
+              </button>
+              <div class="btn-grid-2">
+                <button class="btn btn-blue btn-sm" onclick="runMM('account1')">🏠 CMO Acc1</button>
+                <button class="btn btn-purple btn-sm" onclick="runMM('account2')">💻 CMO Acc2</button>
+              </div>
+            </div>
+
+            <!-- Meta -->
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.7rem;">
+              <div style="font-family:var(--mono);font-size:0.62rem;color:var(--text3)">
+                Last run: <span id="mm-last-run" style="color:var(--text2)">Never</span>
+              </div>
+              <div id="mm-fallback" class="tag tag-red" style="display:none;">⚠️ Fallback Active</div>
+            </div>
+
+            <div class="summary-box" id="mm-summary">Awaiting Mastermind cycle...</div>
+
+            <!-- Scheduled Slots -->
+            <div style="margin-top:1rem;">
+              <div style="font-family:var(--mono);font-size:0.6rem;color:var(--text3);margin-bottom:0.5rem;text-transform:uppercase;letter-spacing:1px;">Today's Schedule</div>
+              <div class="slots-wrap" id="sched-slots">
+                <div class="slot-pill" style="color:var(--text3)">Loading...</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
       </div>
-    </div>
 
-    <!-- Run button -->
-    <button class="btn" id="btn-mastermind" onclick="runMastermind()"
-      style="width:100%;padding:1rem;font-size:1rem;background:linear-gradient(135deg,rgba(155,93,229,0.2),rgba(230,57,70,0.15));color:var(--purple);border:1px solid rgba(155,93,229,0.4);margin-bottom:0.8rem;">
-      🧠 Run Mastermind CEO Cycle
-    </button>
+      <!-- ── CHAT INTERFACE ──────────────────────────────────────── -->
+      <div class="chat-section">
+        <div class="chat-head">
+          <div class="chat-identity">
+            <div class="chat-avatar">🤖</div>
+            <div>
+              <div class="chat-name">PINTERESTO AI</div>
+              <div class="chat-desc">CMO Mastermind · Hinglish Interface · Commands Active</div>
+            </div>
+          </div>
+          <div class="badge badge-success" style="font-size:0.6rem;">
+            <div class="live-dot"></div>ONLINE
+          </div>
+        </div>
 
-    <!-- Fallback indicator + summary -->
-    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
-      <div style="font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--muted);">Last run: <span id="mm-last-run" style="color:var(--text);">Never</span></div>
-      <div id="mm-fallback-badge" style="display:none;font-family:'JetBrains Mono',monospace;font-size:0.58rem;padding:0.15rem 0.5rem;border-radius:20px;background:rgba(244,162,97,0.1);color:var(--accent2);border:1px solid rgba(244,162,97,0.3);">⚠️ Fallback Active</div>
-    </div>
-    <div class="summary-box" id="mm-summary-box" style="font-size:0.7rem;white-space:pre-wrap;min-height:60px;">Awaiting Mastermind cycle...</div>
-  </div>
+        <div class="chat-messages" id="chat-messages">
+          <!-- Welcome message -->
+          <div class="msg ai">
+            <div class="msg-avatar">🤖</div>
+            <div>
+              <div class="msg-bubble">
+                Kya haal hai boss! 👋 Main <strong>PINTERESTO AI</strong> hoon — tera Pinterest empire ka dil aur dimaag.<br><br>
+                Mujhse puch sakta hai system ka haal, ya seedha command de do jaise <em>"aesthetic pin post karo"</em> ya <em>"account 1 chalaao"</em>. Main sab handle kar lunga! 🚀
+              </div>
+              <div class="msg-time" id="welcome-time">—</div>
+            </div>
+          </div>
+        </div>
 
-  <!-- ── Products Pipeline ── -->
-  <div class="card" style="padding:0; overflow:hidden;">
-    <div class="card-header" style="padding:1.2rem 1.5rem; margin:0; border-bottom:1px solid var(--border);">
-      <div class="section-title">Products Pipeline</div>
-      <button style="background:transparent; border:1px solid var(--border); color:var(--muted); padding:0.35rem 0.8rem; border-radius:6px; cursor:pointer;" onclick="loadProducts()">↻ Refresh</button>
-    </div>
-    <div class="products-list" id="products-list">
-      <div style="text-align:center; padding:3rem; color:var(--muted); font-size:0.8rem;">Loading...</div>
+        <div class="chat-input-area">
+          <div class="chat-suggestions" id="suggestions">
+            <span class="suggestion" onclick="quickSend(this)">System kesa hai?</span>
+            <span class="suggestion" onclick="quickSend(this)">Aesthetic pin post karo</span>
+            <span class="suggestion" onclick="quickSend(this)">Product pin post karo</span>
+            <span class="suggestion" onclick="quickSend(this)">Account 1 run karo</span>
+            <span class="suggestion" onclick="quickSend(this)">Account 2 run karo</span>
+            <span class="suggestion" onclick="quickSend(this)">Mastermind CMO chalaao</span>
+          </div>
+          <div class="chat-input-wrap">
+            <textarea class="chat-input" id="chat-input"
+              placeholder="Pinteresto se baat karo... (Hinglish/English)"
+              rows="1"
+              onkeydown="chatKeydown(event)"
+              oninput="autoResize(this)"></textarea>
+            <button class="chat-send" id="chat-send-btn" onclick="sendChat()" title="Send">
+              ➤
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── PRODUCTS PIPELINE ───────────────────────────────────── -->
+      <div class="products-section">
+        <div class="products-head">
+          <div class="card-title">📦 Products Pipeline</div>
+          <button class="btn btn-ghost btn-xs" onclick="loadProducts()">↻ Refresh</button>
+        </div>
+        <div class="products-list" id="products-list">
+          <div style="text-align:center;padding:2.5rem;color:var(--text3);font-size:0.8rem;font-family:var(--mono)">Loading products...</div>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -200,194 +642,304 @@ header{display:flex;align-items:center;justify-content:space-between;margin-bott
 <div class="toast" id="toast"></div>
 
 <script>
-// 🔥 Safe HF Pathing: Automatically uses relative paths (no leading slash)
-const API_BASE = window.location.pathname.endsWith('/') ? '' : ''; 
+// ── Constants ──────────────────────────────────────────────────────────────
+const BASE = '';
+let pollTimer   = null;
+let mmPollTimer = null;
+let chatHistory = [];
 
-const ALL_BTNS = ['btn-run', 'btn-acc1', 'btn-acc2', 'btn-fetch', 'btn-publish'];
-let polling = null;
+// ── Clock ──────────────────────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:true });
+}
+setInterval(updateClock, 1000);
+updateClock();
+document.getElementById('welcome-time').textContent = new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true});
 
-function showToast(msg, color='var(--green)'){
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.style.borderColor = color;
-  t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'), 3000);
+// ── Toast ──────────────────────────────────────────────────────────────────
+function toast(msg, color='var(--green)') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.borderColor = color;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3200);
 }
 
-function setAllBtns(disabled){
-  ALL_BTNS.forEach(id => {
+// ── Button Helpers ─────────────────────────────────────────────────────────
+const ALL_RUN_BTNS = ['btn-run-both','btn-run-a1','btn-run-a2','btn-mm-both','btn-fetch','btn-niches'];
+
+function setRunBtns(disabled) {
+  ALL_RUN_BTNS.forEach(id => {
     const b = document.getElementById(id);
-    if(b) b.disabled = disabled;
+    if (b) b.disabled = disabled;
   });
 }
 
-// Fixed API Call Logic
-async function apiCall(endpoint, btnId, label){
-  setAllBtns(true);
-  const btn = document.getElementById(btnId);
-  const originalText = btn.innerHTML;
-  btn.innerHTML = '<span class="spinner"></span> Running...';
-  
-  try {
-    const r = await fetch(API_BASE + endpoint, { method: 'POST' });
-    const d = await r.json();
-    
-    if(d.status === 'busy'){
-      showToast('⚠️ Agent already running!', 'var(--accent2)');
-    } else {
-      showToast(`✅ ${label} started!`);
-      startPolling();
-    }
-  } catch(e) {
-    console.error("API Call Error:", e);
-    showToast('❌ Failed to communicate with server', 'var(--accent)');
-  } finally {
-    btn.innerHTML = originalText;
-    setAllBtns(false);
+function setBtnLoading(id, loading, label) {
+  const b = document.getElementById(id);
+  if (!b) return;
+  if (loading) {
+    b._orig = b.innerHTML;
+    b.innerHTML = `<span class="spinner"></span> ${label}`;
+  } else {
+    b.innerHTML = b._orig || b.innerHTML;
   }
 }
 
-async function loadStats(){
+// ── Stats ──────────────────────────────────────────────────────────────────
+async function loadStats() {
   try {
-    const r = await fetch(API_BASE + 'api/stats');
-    const d = await r.json();
-    
-    document.getElementById('stat-pending').textContent = d.pending ?? '—';
-    document.getElementById('stat-posted').textContent  = d.posted ?? '—';
-    document.getElementById('stat-total').textContent   = d.total ?? '—';
-    document.getElementById('stat-today').textContent   = d.posted_today ?? '0';
-    document.getElementById('action-label').textContent = d.last_action || '—';
+    const d = await (await fetch(BASE+'api/stats')).json();
+    document.getElementById('s-pending').textContent = d.pending ?? '—';
+    document.getElementById('s-posted').textContent  = d.posted  ?? '—';
+    document.getElementById('s-total').textContent   = d.total   ?? '—';
+    document.getElementById('s-today').textContent   = d.posted_today ?? '0';
 
-    const badge = document.getElementById('agent-status-badge');
-    if(d.running){
-      badge.textContent = 'RUNNING...';
-      badge.className = 'agent-status running';
-      setAllBtns(true);
+    const badge = document.getElementById('agent-badge');
+    if (d.running) {
+      badge.textContent = 'RUNNING...'; badge.className = 'badge badge-running';
     } else {
-      badge.textContent = 'IDLE';
-      badge.className = 'agent-status idle';
-      setAllBtns(false);
-      stopPolling();
+      badge.textContent = 'IDLE'; badge.className = 'badge badge-idle';
     }
 
-    const box = document.getElementById('summary-box');
-    if(d.last_summary && d.last_summary !== 'Not run yet'){
+    const box = document.getElementById('agent-summary');
+    if (d.last_summary && d.last_summary !== 'Not run yet') {
       box.textContent = d.last_summary;
-      box.className = (d.last_summary.includes('Error') || d.last_summary.includes('Failed')) ? 'summary-box error' : 'summary-box success';
+      box.className = 'summary-box ' + (d.last_summary.includes('Error') || d.last_summary.includes('Failed') ? 'err' : 'ok');
     }
-  } catch(e) {
-    console.error("Stats Error:", e);
-  }
+  } catch(e) { console.warn('Stats error:', e); }
 }
 
-async function loadProducts(){
+// ── Mastermind Stats ───────────────────────────────────────────────────────
+async function loadMastermindStats() {
   try {
-    const r = await fetch(API_BASE + 'api/products');
-    const d = await r.json();
-    const list = document.getElementById('products-list');
-    
-    if(!d.products || d.products.length === 0){
-      list.innerHTML = '<div style="text-align:center; padding:3rem; color:var(--muted); font-size:0.8rem;">No products yet.</div>';
-      return;
-    }
-    
-    const sorted = [...d.products].sort((a,b) => (a.Status === 'PENDING' ? -1 : 1));
-    list.innerHTML = sorted.map(p => `
-      <div class="product-row">
-        <img class="product-img" src="${p.image_url||''}" onerror="this.style.background='#1e1e2e';this.src=''" alt="">
-        <div class="product-info">
-          <div class="product-name">${p.product_name||'Unknown'}</div>
-          <div class="product-meta">$${p.sale_price||'—'} · ⭐${p.rating||'—'}</div>
-        </div>
-        <div class="status-badge status-${p.Status||'PENDING'}">${p.Status||'PENDING'}</div>
-      </div>
-    `).join('');
-  } catch(e) {
-    console.error("Products Error:", e);
-  }
-}
+    const d = await (await fetch(BASE+'api/mastermind/stats')).json();
 
-function startPolling(){ if(!polling) polling = setInterval(()=>{loadStats(); loadProducts();}, 3000); }
-function stopPolling(){ if(polling){ clearInterval(polling); polling=null; } }
-
-// ── Mastermind CEO ────────────────────────────────────────────────────────────
-let mmPolling = null;
-
-async function runMastermind(){
-  const btn = document.getElementById('btn-mastermind');
-  const orig = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Mastermind Thinking...';
-  try {
-    const r = await fetch(API_BASE + 'api/mastermind/run', { method: 'POST' });
-    const d = await r.json();
-    if(d.status === 'busy'){
-      showToast('⚠️ Mastermind already running!', 'var(--accent2)');
+    const badge = document.getElementById('mm-badge');
+    const btn   = document.getElementById('btn-mm-both');
+    if (d.running) {
+      badge.textContent = 'RUNNING...'; badge.className = 'badge badge-running';
+      setRunBtns(true);
+      startMmPoll();
     } else {
-      showToast('🧠 Mastermind CEO cycle started!', 'var(--purple)');
-      startMmPolling();
-    }
-  } catch(e) {
-    showToast('❌ Failed to start Mastermind', 'var(--accent)');
-  } finally {
-    btn.innerHTML = orig;
-    btn.disabled = false;
-  }
-}
-
-async function loadMastermindStats(){
-  try {
-    const r = await fetch(API_BASE + 'api/mastermind/stats');
-    const d = await r.json();
-
-    const badge = document.getElementById('mastermind-status-badge');
-    const btn   = document.getElementById('btn-mastermind');
-    if(d.running){
-      badge.textContent = 'RUNNING...';
-      badge.className = 'agent-status running';
-      btn.disabled = true;
-    } else {
-      badge.textContent = 'IDLE';
-      badge.className = 'agent-status idle';
-      badge.style.color = 'var(--purple)';
-      btn.disabled = false;
-      stopMmPolling();
+      badge.textContent = 'IDLE'; badge.className = 'badge badge-idle';
+      badge.style.color = 'var(--accent2)';
+      setRunBtns(false);
     }
 
     document.getElementById('mm-last-run').textContent = d.last_run || 'Never';
 
-    const a1El = document.getElementById('mm-a1-strategy');
-    const a2El = document.getElementById('mm-a2-strategy');
-    if(d.a1_strategy && d.a1_strategy !== '—') a1El.textContent = d.a1_strategy;
-    if(d.a2_strategy && d.a2_strategy !== '—') a2El.textContent = d.a2_strategy;
-
-    document.getElementById('mm-a1-posted').textContent = d.a1_posted ? '✅ Posted' : '— Not posted';
-    document.getElementById('mm-a2-posted').textContent = d.a2_posted ? '✅ Posted' : '— Not posted';
-    document.getElementById('mm-a1-posted').style.color = d.a1_posted ? 'var(--green)' : 'var(--muted)';
-    document.getElementById('mm-a2-posted').style.color = d.a2_posted ? 'var(--green)' : 'var(--muted)';
-
-    const fbBadge = document.getElementById('mm-fallback-badge');
-    fbBadge.style.display = d.fallback ? 'inline-flex' : 'none';
-
-    const box = document.getElementById('mm-summary-box');
-    if(d.summary && d.summary !== 'Not run yet'){
-      box.textContent = d.summary;
-      box.className = d.summary.includes('Error') ? 'summary-box error' : 'summary-box success';
+    if (d.a1_strategy && d.a1_strategy !== '—') {
+      document.getElementById('mm-a1-strat').textContent = d.a1_strategy;
     }
+    if (d.a2_strategy && d.a2_strategy !== '—') {
+      document.getElementById('mm-a2-strat').textContent = d.a2_strategy;
+    }
+
+    const a1p = document.getElementById('mm-a1-posted');
+    const a2p = document.getElementById('mm-a2-posted');
+    a1p.textContent = d.a1_posted ? '✅ Posted' : '— Not posted';
+    a2p.textContent = d.a2_posted ? '✅ Posted' : '— Not posted';
+    a1p.style.color = d.a1_posted ? 'var(--green)' : 'var(--text3)';
+    a2p.style.color = d.a2_posted ? 'var(--green)' : 'var(--text3)';
+
+    document.getElementById('mm-fallback').style.display = d.fallback ? 'inline-flex' : 'none';
+
+    const box = document.getElementById('mm-summary');
+    if (d.summary && !['Not run yet','Awaiting first cycle...'].includes(d.summary)) {
+      box.textContent = d.summary;
+      box.className = 'summary-box ' + (d.summary.includes('Error') ? 'err' : 'ok');
+    }
+
+    // Scheduled slots
+    const slotsEl = document.getElementById('sched-slots');
+    if (d.scheduled_slots && d.scheduled_slots.length > 0) {
+      slotsEl.innerHTML = d.scheduled_slots.map(s =>
+        `<div class="slot-pill">${s.id.includes('a1') ? '🏠' : '💻'} ${s.next_run}</div>`
+      ).join('');
+    } else {
+      slotsEl.innerHTML = '<div class="slot-pill" style="color:var(--text3)">No slots scheduled</div>';
+    }
+
+  } catch(e) { console.warn('MM stats error:', e); }
+}
+
+// ── Mastermind Run ─────────────────────────────────────────────────────────
+async function runMM(which) {
+  let endpoint = 'api/mastermind/run';
+  if (which === 'account1') endpoint = 'api/mastermind/run-account1';
+  else if (which === 'account2') endpoint = 'api/mastermind/run-account2';
+
+  setRunBtns(true);
+  try {
+    const d = await (await fetch(BASE + endpoint, { method: 'POST' })).json();
+    if (d.status === 'busy') {
+      toast('⚠️ Mastermind already running!', 'var(--orange)');
+      return;
+    }
+    const label = which === 'both' ? 'Both Accounts' : which === 'account1' ? 'Account 1' : 'Account 2';
+    toast(`🧠 Mastermind CMO started — ${label}`,'var(--accent2)');
+    document.getElementById('mm-badge').textContent = 'RUNNING...';
+    document.getElementById('mm-badge').className = 'badge badge-running';
+    startMmPoll();
   } catch(e) {
-    console.error('Mastermind stats error:', e);
+    toast('❌ Failed to start Mastermind','var(--red)');
+    setRunBtns(false);
   }
 }
 
-function startMmPolling(){ if(!mmPolling) mmPolling = setInterval(loadMastermindStats, 3000); }
-function stopMmPolling(){ if(mmPolling){ clearInterval(mmPolling); mmPolling=null; } }
+async function stopAll() {
+  await fetch(BASE+'api/stop', { method: 'POST' });
+  await fetch(BASE+'api/mastermind/stop', { method: 'POST' });
+  toast('⏹ Stop signal sent — cycle will finish gracefully','var(--orange)');
+}
 
-window.onload = () => {
-  loadStats();
-  loadProducts();
-  loadMastermindStats();
-  setInterval(loadStats, 30000);
-  setInterval(loadMastermindStats, 30000);
-};
+async function utilCall(ep, btnId, label) {
+  setBtnLoading(btnId, true, label);
+  try {
+    const d = await (await fetch(BASE+'api/'+ep, { method:'POST' })).json();
+    toast('✅ ' + (d.message || 'Done!'));
+  } catch(e) {
+    toast('❌ Request failed', 'var(--red)');
+  } finally {
+    setBtnLoading(btnId, false);
+  }
+}
+
+// ── Products ───────────────────────────────────────────────────────────────
+async function loadProducts() {
+  try {
+    const d = await (await fetch(BASE+'api/products')).json();
+    const el = document.getElementById('products-list');
+    if (!d.products || d.products.length === 0) {
+      el.innerHTML = '<div style="text-align:center;padding:2.5rem;color:var(--text3);font-size:0.8rem;font-family:var(--mono)">No products yet. Fetch some first! 🛒</div>';
+      return;
+    }
+    const sorted = [...d.products].sort((a,b) => a.Status === 'PENDING' ? -1 : 1);
+    el.innerHTML = sorted.map(p => `
+      <div class="product-row">
+        <img class="product-img" src="${p.image_url||''}" onerror="this.src='';this.style.background='#1e1e2e'" alt="">
+        <div class="product-info">
+          <div class="product-name">${(p.product_name||'Unknown Product').substring(0,70)}</div>
+          <div class="product-meta">${p.sale_price||'—'} · ⭐ ${p.rating||'—'} · ${p.niche||'—'}</div>
+        </div>
+        <div class="status-pill status-${p.Status||'PENDING'}">${p.Status||'PENDING'}</div>
+      </div>
+    `).join('');
+  } catch(e) { console.warn('Products error:', e); }
+}
+
+// ── Polling ────────────────────────────────────────────────────────────────
+function startMmPoll() {
+  if (!mmPollTimer) mmPollTimer = setInterval(() => { loadMastermindStats(); loadStats(); }, 3000);
+}
+function stopMmPoll()  { if (mmPollTimer) { clearInterval(mmPollTimer); mmPollTimer = null; } }
+
+// ── CHAT ───────────────────────────────────────────────────────────────────
+function timeNow() {
+  return new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true});
+}
+
+function appendMsg(role, text, action) {
+  const wrap = document.getElementById('chat-messages');
+  const div  = document.createElement('div');
+  div.className = 'msg ' + role;
+
+  const avatar = role === 'ai' ? '🤖' : '👤';
+  const actionHtml = action ? `<div class="msg-action">⚡ Action: ${action}</div>` : '';
+
+  div.innerHTML = `
+    <div class="msg-avatar">${avatar}</div>
+    <div>
+      <div class="msg-bubble">${text.replace(/\n/g,'<br>')}</div>
+      ${actionHtml}
+      <div class="msg-time">${timeNow()}</div>
+    </div>
+  `;
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+  return div;
+}
+
+function showTyping() {
+  const wrap = document.getElementById('chat-messages');
+  const div  = document.createElement('div');
+  div.className = 'msg ai'; div.id = 'typing-msg';
+  div.innerHTML = `
+    <div class="msg-avatar">🤖</div>
+    <div>
+      <div class="msg-bubble">
+        <div class="typing-indicator">
+          <div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>
+        </div>
+      </div>
+    </div>`;
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function removeTyping() {
+  const el = document.getElementById('typing-msg');
+  if (el) el.remove();
+}
+
+function quickSend(el) { sendChat(el.textContent); }
+
+async function sendChat(preset) {
+  const inp = document.getElementById('chat-input');
+  const msg = (preset || inp.value).trim();
+  if (!msg) return;
+
+  inp.value = '';
+  inp.style.height = 'auto';
+  document.getElementById('chat-send-btn').disabled = true;
+
+  appendMsg('user', msg, null);
+  showTyping();
+
+  try {
+    const res = await fetch(BASE + 'api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg }),
+    });
+    const d = await res.json();
+    removeTyping();
+    appendMsg('ai', d.response, d.action);
+
+    // If an action was triggered, refresh stats
+    if (d.action && d.action !== 'get_status') {
+      setTimeout(() => { loadStats(); loadMastermindStats(); startMmPoll(); }, 1000);
+    }
+  } catch(e) {
+    removeTyping();
+    appendMsg('ai', 'Yaar, server se baat nahi ho rahi abhi. Thodi der mein try karo! 🙏', null);
+  } finally {
+    document.getElementById('chat-send-btn').disabled = false;
+    inp.focus();
+  }
+}
+
+function chatKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+async function init() {
+  await Promise.all([loadStats(), loadMastermindStats(), loadProducts()]);
+  // Periodic refresh — slow poll when idle
+  setInterval(() => { loadStats(); loadMastermindStats(); }, 20000);
+  setInterval(loadProducts, 60000);
+}
+
+init();
 </script>
 </body>
 </html>
