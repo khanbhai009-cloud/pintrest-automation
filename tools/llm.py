@@ -20,8 +20,8 @@ def chat(prompt: str, system: str = "", temperature: float = 0.7) -> str:
     """
     messages = []
     if system:
-        messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": prompt})
+        messages.append({"role": "system", "content": str(system)})
+    messages.append({"role": "user", "content": str(prompt)})
 
     # ── Try Groq first ──────────────────────────────────────
     if groq_client:

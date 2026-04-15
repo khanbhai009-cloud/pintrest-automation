@@ -295,7 +295,7 @@ async def chat_endpoint(req: ChatMessage, background_tasks: BackgroundTasks):
 
     try:
         import asyncio
-        ai_response = await asyncio.to_thread(chat, full_prompt, 0.75)
+        ai_response = await asyncio.to_thread(chat, full_prompt, temperature=0.75)
 
         # Extract action tag from response
         if "[ACTION:" in ai_response:

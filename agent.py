@@ -1,31 +1,26 @@
 """
-agent.py — Pinteresto Mastermind Agent (Production v2)
+agent.py — Pinteresto Mastermind Agent (Production v3)
 
 LangGraph StateGraph architecture with:
   - Explicit env loading (IMGBB_API_KEY, etc.)
   - Full async httpx for all network I/O
-  - CMO strategy-aware routing (Visual Pivot / Viral-Bait / Aggressive Affiliate Strike)
-  - Dual image pipeline: T2I (Pollinations → Puter fallback) vs I2I (Puter)
+  - 70/30 routing: VIRAL_PIN (T2I, no affiliate) vs AFFILIATE_PIN (raw image, affiliate link kept)
+  - T2I pipeline: Pollinations → Puter free fallback
   - ImgBB mandatory hosting gateway before every Pinterest webhook call
   - Mandatory stock refill guard before publishing
 
-CHANGE (Mastermind integration):
-  run_agent() now accepts an optional `cmo_strategy` dict from the Mastermind graph.
-  When provided, the strategy/vibe/image_prompts are injected directly into the
-  system prompt so the agent acts on the CMO's exact commands — no Node 3/4 needed.
+run_agent() accepts an optional `cmo_strategy` dict from the Mastermind graph.
+When provided, pin_type, title, description, tags, and visual_prompt are read
+directly from it — no separate copywriting node needed.
 """
 
 import asyncio
-import base64
 import logging
 import os
 import random
 import time
-import urllib.parse
-import uuid
 from typing import Annotated, Optional
 
-import httpx
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_groq import ChatGroq
@@ -34,13 +29,12 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 from typing_extensions import TypedDict
-from tools.image_creator import generate_pin_image
+from tools.image_creator import generate_pin_image, upload_raw_image
 from config import (
     CEREBRAS_API_KEY,
     CEREBRAS_MODEL,
     GROQ_API_KEY,
     GROQ_MODEL,
-    PINTEREST_ACCOUNTS,
 )
 from tools.admitad import enrich_with_affiliate_link
 from tools.aliexpress import DEFAULT_KEYWORDS, KEYWORDS_BY_NICHE, search_products
@@ -193,83 +187,79 @@ async def fetch_aliexpress_products(niche: str, keyword: str = "") -> dict:
 
 
 @tool
-async def publish_next_pin(
-    niche:         str,
-    strategy:      str = "Visual Pivot",
-    vibe:          str = "",
-    image_prompt:  str = "",
-) -> dict:
+async def publish_next_pin(niche: str) -> dict:
     """
     Publish the next PENDING product for the given niche to Pinterest.
 
-    strategy must be exactly one of:
-      'Visual Pivot'              → T2I aesthetic pin, affiliate link STRIPPED
-      'Viral-Bait'                → T2I aesthetic pin, affiliate link STRIPPED
-      'Aggressive Affiliate Strike' → I2I product composite, affiliate link KEPT
+    Routing is determined by a 70/30 random split (from the CMO strategy):
+      VIRAL_PIN    (70%) — T2I aesthetic image, affiliate link STRIPPED.
+      AFFILIATE_PIN (30%) — Raw product image used directly, affiliate link KEPT.
 
-    vibe        — CMO's exact aesthetic command (e.g. 'Satisfying ASMR/Luxury...')
-    image_prompt — CMO's high-fidelity image generation direction
-
-    NOTE: When called from Mastermind pipeline, strategy/vibe/image_prompt are
-    pre-filled by the CMO system prompt — agent just calls this with the right values.
+    CMO-generated title, description, tags, and visual_prompt are read from the
+    injected CURRENT_CMO_STRATEGY global. Google Sheets mark_as_posted is always
+    called on success to preserve the update logic.
     """
-    global CURRENT_TRIGGER
+    global CURRENT_TRIGGER, CURRENT_CMO_STRATEGY
+
     target_account = (
         "Account1_HomeDecor"
         if "account1" in str(CURRENT_TRIGGER)
         else "Account2_Tech"
     )
 
-    # 1. Fetch product
+    # ── 1. Fetch pending product ──────────────────────────────────────────────
     pending = get_pending_products(limit=1, allowed_niches=[niche])
     if not pending:
         return {"success": False, "reason": f"No PENDING products for niche '{niche}'"}
     product = pending[0]
 
-    product_name      = product.get("product_name", "Amazing Find")
-    raw_img_url       = product.get("image_url", "")
-    affiliate_link    = product.get("affiliate_link") or product.get("product_url", "")
+    product_name   = product.get("product_name", "Amazing Find")
+    raw_img_url    = product.get("image_url", "")
+    affiliate_link = product.get("affiliate_link") or product.get("product_url", "")
 
-    # Strip affiliate link for non-affiliate strategies
-    if strategy in ("Visual Pivot", "Viral-Bait"):
-        affiliate_link = ""
-        logger.info(f"🔗 [{target_account}] Strategy='{strategy}' — affiliate link STRIPPED.")
+    # ── 2. Read CMO strategy (pin_type + copy) ───────────────────────────────
+    cmo = CURRENT_CMO_STRATEGY or {}
+    pin_type      = cmo.get("pin_type", "VIRAL_PIN")
+    visual_prompt = cmo.get("visual_prompt", "")
+
+    # Use CMO-generated copy when available; fall back to groq_ai generator
+    if cmo.get("title"):
+        title = str(cmo["title"])[:100]
+        desc  = str(cmo.get("description", ""))
+        tags  = list(cmo.get("tags", []))
     else:
-        logger.info(f"🔗 [{target_account}] Strategy='{strategy}' — affiliate link KEPT.")
+        try:
+            copy  = generate_pin_copy(product)
+            title = copy.get("title", product_name)[:100]
+            desc  = copy.get("description", "")
+            tags  = copy.get("tags", [])
+        except Exception as e:
+            logger.error(f"❌ SEO copy generation failed: {e}")
+            title = product_name[:100]
+            desc  = ""
+            tags  = []
 
-    # 2. SEO copy
-    try:
-        copy  = generate_pin_copy(product)
-        title = copy.get("title", product_name)[:100]
-        desc  = copy.get("description", "")
-        tags  = copy.get("tags", [])
-    except Exception as e:
-        logger.error(f"❌ SEO copy generation failed: {e}")
-        title = product_name[:100]
-        desc  = ""
-        tags  = []
+    # ── 3. Route by pin_type — 70% VIRAL / 30% AFFILIATE ────────────────────
+    if pin_type == "AFFILIATE_PIN":
+        logger.info(f"💰 [{target_account}] AFFILIATE_PIN — using raw product image, keeping affiliate link.")
+        # Upload raw product image to ImgBB for a stable Pinterest-safe URL
+        imgbb_url = await upload_raw_image(raw_img_url) if raw_img_url else None
+        if not imgbb_url:
+            return {"success": False, "reason": "AFFILIATE_PIN: raw product image unavailable or upload failed."}
+    else:
+        # VIRAL_PIN — generate T2I aesthetic image, strip affiliate link
+        logger.info(f"🎨 [{target_account}] VIRAL_PIN — generating T2I image, stripping affiliate link.")
+        affiliate_link = ""
+        prompt = visual_prompt or f"aesthetic Pinterest pin for {niche}, ultra-realistic, 8k"
+        imgbb_url = await generate_pin_image(visual_prompt=prompt)
+        if not imgbb_url:
+            # Last-resort fallback: upload raw product image
+            logger.warning("⚠️ [Publish] T2I failed — falling back to raw product image (no affiliate link).")
+            imgbb_url = await upload_raw_image(raw_img_url) if raw_img_url else None
+        if not imgbb_url:
+            return {"success": False, "reason": "VIRAL_PIN: image generation and all fallbacks failed."}
 
-    # 3. Image pipeline — T2I or I2I → always ends with ImgBB URL
-    imgbb_url = await generate_pin_image(
-    strategy=strategy,
-    vibe=vibe,
-    image_prompt=image_prompt,
-    raw_product_image_url=raw_img_url,
-    )
-
-    if not imgbb_url:
-        logger.warning(
-            "⚠️ [Publish] ImgBB URL unavailable — attempting fallback with raw product image."
-        )
-        if raw_img_url:
-            fallback_bytes = await _download_bytes(raw_img_url)
-            if fallback_bytes:
-                imgbb_url = await _upload_to_imgbb(fallback_bytes)
-
-    if not imgbb_url:
-        return {"success": False, "reason": "Image generation and all fallbacks failed."}
-
-    # 4. Post to Pinterest via Make.com webhook
+    # ── 4. Post to Pinterest via Make.com webhook ─────────────────────────────
     try:
         success = await post_to_pinterest(
             image_url=imgbb_url,
@@ -283,14 +273,14 @@ async def publish_next_pin(
     except Exception as e:
         return {"success": False, "reason": f"Webhook error: {e}"}
 
-    # 5. Mark as posted
+    # ── 5. Mark as posted (Google Sheets update) ──────────────────────────────
     if success:
         mark_as_posted(product_name)
         return {
             "success":   True,
             "product":   product_name,
             "niche":     niche,
-            "strategy":  strategy,
+            "pin_type":  pin_type,
             "image_url": imgbb_url,
         }
 
@@ -330,41 +320,37 @@ def _build_system_prompt(cmo_strategy: Optional[dict] = None) -> str:
     """
     Build the agent system prompt.
 
-    If `cmo_strategy` is provided (from Mastermind graph), inject the exact
-    strategy/vibe/image_prompts into the prompt so the agent uses them directly
-    when calling publish_next_pin — no guessing, no Node 3 copywriters needed.
+    If `cmo_strategy` is provided (from Mastermind graph), inject the pin_type,
+    title, description, tags, and visual_prompt so the agent uses them directly.
 
-    If `cmo_strategy` is None (standalone run), keep the original open-ended prompt.
+    If `cmo_strategy` is None (standalone run), keep an open-ended prompt.
     """
     if cmo_strategy:
-        strategy     = cmo_strategy.get("strategy", "Visual Pivot")
-        vibe         = cmo_strategy.get("vibe", "Aspirational aesthetic")
-        image_prompts = cmo_strategy.get("image_prompts", ["aesthetic product photo"])
-        image_prompt  = image_prompts[0] if image_prompts else "aesthetic product photo"
+        pin_type      = cmo_strategy.get("pin_type", "VIRAL_PIN")
+        strategy      = cmo_strategy.get("strategy", "Visual Pivot")
+        visual_prompt = cmo_strategy.get("visual_prompt", "aesthetic product photo")
 
         cmo_brief = f"""
 ⚡ CMO MASTERMIND BRIEF — FOLLOW THIS EXACTLY ⚡
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  STRATEGY     : {strategy}
-  VIBE         : {vibe}
-  IMAGE PROMPT : {image_prompt}
+  PIN TYPE      : {pin_type}
+  STRATEGY      : {strategy}
+  VISUAL PROMPT : {visual_prompt}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-The CMO Mastermind (Gemini) has already decided. You MUST use these EXACT values
-in your publish_next_pin() call. Do NOT change strategy, vibe, or image_prompt.
+The CMO Mastermind (Gemini) has already decided the pin type via 70/30 routing.
+publish_next_pin() reads the CMO strategy automatically — just pass the niche.
 """
     else:
         cmo_brief = """
 ⚡ CMO BRIEF — STANDALONE MODE ⚡
-No Mastermind strategy injected. Use your judgment to select the best strategy
-(Visual Pivot / Viral-Bait / Aggressive Affiliate Strike) based on the account trigger.
+No Mastermind strategy injected. publish_next_pin() will default to VIRAL_PIN.
 """
 
-    return f"""You are PINTERESTO — an autonomous Pinterest affiliate marketing agent powered by the Mastermind CEO pipeline.
+    return f"""You are PINTERESTO — an autonomous Pinterest affiliate marketing agent.
 {cmo_brief}
-You operate under a CMO strategy that is ONE of:
-  • "Visual Pivot"                  — Post aspirational aesthetic content. Generate T2I images. Strip affiliate links.
-  • "Viral-Bait"                    — Post high-quality purely aesthetic content to warm up the algorithm. Generate T2I images. Strip affiliate links.
-  • "Aggressive Affiliate Strike"   — Post product pins with affiliate links. Use the raw product image composed into the vibe (I2I). Keep affiliate links.
+The pipeline uses a 70/30 routing system decided by the CMO Mastermind (Gemini):
+  • VIRAL_PIN    (70%) — T2I aesthetic image generated, affiliate link STRIPPED.
+  • AFFILIATE_PIN (30%) — Raw product image used directly, affiliate link KEPT.
 
 You MUST follow this EXACT 5-step protocol on every run:
 
@@ -380,26 +366,23 @@ STEP 3 → MANDATORY STOCK GATE
   - Do NOT skip this. Never proceed to STEP 4 with an empty niche.
   - IF needs_fetching == False: Skip STEP 3 and proceed directly to STEP 4.
 
-STEP 4 → CALL publish_next_pin(
-    niche="<selected_niche>",
-    strategy="<use the CMO strategy from the brief above — EXACTLY>",
-    vibe="<use the CMO vibe from the brief above — EXACTLY>",
-    image_prompt="<use the CMO image_prompt from the brief above — EXACTLY>"
-  )
-  The image pipeline inside publish_next_pin will:
-    - For Visual Pivot / Viral-Bait: Generate a fresh T2I image (Pollinations → Puter fallback) and strip affiliate links.
-    - For Aggressive Affiliate Strike: Composite the product image with the vibe (I2I via Puter) and keep the affiliate link.
-  The image is always routed through ImgBB (30-min temp hosting) before the Pinterest webhook.
+STEP 4 → CALL publish_next_pin(niche="<selected_niche>")
+  The function automatically:
+    - Reads pin_type (VIRAL_PIN / AFFILIATE_PIN) from the injected CMO strategy.
+    - VIRAL_PIN: Generates T2I image via Pollinations → Puter fallback, strips affiliate link.
+    - AFFILIATE_PIN: Uses raw product image URL directly (no AI generation), keeps affiliate link.
+    - Always uploads final image to ImgBB before the Pinterest webhook.
+    - Always calls mark_as_posted() in Google Sheets on success.
 
 STEP 5 → END
   Output your final report in EXACTLY this format:
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   NICHES FILLED  : [X products updated]
   TARGET NICHE   : "[selected_niche]"
-  STRATEGY       : "[Visual Pivot / Viral-Bait / Aggressive Affiliate Strike]"
+  PIN TYPE       : "[VIRAL_PIN / AFFILIATE_PIN]"
   STOCK REFILLED : [Yes — X products fetched] OR [No — stock sufficient]
   POSTED         : "[product title]"
-  IMAGE PATH     : [T2I-Pollinations / T2I-Puter / I2I-Puter]
+  IMAGE PATH     : [T2I-Pollinations / T2I-Puter / Raw-Product-Image]
   STATUS         : ✅ Success OR ❌ Failed — [reason]
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
 
@@ -446,10 +429,11 @@ async def run_agent(
     Args:
         trigger:      "account1" or "account2" (set by Mastermind graph node_agent_executor)
                       or "scheduled" / "manual" for standalone runs.
-        cmo_strategy: Optional dict with keys: strategy, vibe, image_prompts.
-                      When provided (Mastermind mode), the CMO's exact decisions are
-                      injected into the system prompt and used verbatim in publish_next_pin().
-                      When None (standalone mode), agent decides strategy independently.
+        cmo_strategy: Optional dict with keys: pin_type, strategy, vibe, title,
+                      description, tags, visual_prompt.
+                      When provided (Mastermind mode), the CMO's decisions are injected
+                      and used directly in publish_next_pin().
+                      When None (standalone mode), publish_next_pin() defaults to VIRAL_PIN.
 
     Returns:
         dict with keys: status, summary
