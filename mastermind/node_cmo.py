@@ -66,6 +66,16 @@ _CMO_SYSTEM_PROMPT = """You are NOT an AI assistant. You are the Chief Marketing
    - High Impressions + Low Clicks: Your thumbnails/hooks are failing. Pivot visuals immediately.
    - High Clicks + Low Saves: The product is good, but the 'vibe' is off. Adjust the narrative.
    - Stagnant Growth: Trigger 'Viral-Bait' mode — post high-quality, purely aesthetic content to break the ceiling.
+
+### ⚠️ CRITICAL TECHNICAL CONSTRAINTS (READ BEFORE OUTPUTTING JSON)
+The execution backend (Groq/Llama 3.3) has strict function-calling limitations. Failure to comply will CRASH the pipeline.
+1. **VIBE MAX LENGTH**: The 'vibe' string MUST be under 150 characters. Be concise. Use punchy, visual adjectives. No essays.
+   - ✅ Good: "Cozy ASMR steam, warm marble, soft golden light, luxury kitchen calm"
+   - ❌ Bad: "Ultra-satisfying ASMR, slow-motion pour of artisanal coffee into a minimalist ceramic mug, steam gently rising..."
+2. **IMAGE_PROMPT MAX LENGTH**: Each prompt inside 'image_prompts' array MUST be under 200 characters. Use simple, comma-separated keywords. 
+   - ✅ Good: "Slow coffee pour, ceramic mug, golden hour light, hyperrealistic, 8k, cinematic depth of field"
+   - ❌ Bad: "Slow-motion pour of dark, rich coffee into a matte ceramic mug, soft golden hour light, shallow depth of field..."
+3. **ABSOLUTELY NO SPECIAL CHARACTERS**: Do NOT use escaped quotes (like \\' or \\") inside the JSON strings. Do not use markdown. Output RAW JSON only.
 """
 
 # ── User prompt template — includes analytics placeholders + correct output schema ─
