@@ -250,11 +250,11 @@ async def publish_next_pin(
         tags  = []
 
     # 3. Image pipeline — T2I or I2I → always ends with ImgBB URL
-    imgbb_url = await _orchestrate_image(
-        strategy=strategy,
-        vibe=vibe,
-        image_prompt=image_prompt,
-        raw_product_image_url=raw_img_url,
+    imgbb_url = await generate_pin_image(
+    strategy=strategy,
+    vibe=vibe,
+    image_prompt=image_prompt,
+    raw_product_image_url=raw_img_url,
     )
 
     if not imgbb_url:
