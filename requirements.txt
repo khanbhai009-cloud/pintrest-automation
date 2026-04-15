@@ -39,3 +39,4 @@ pytz
 tenacity
 typing_extensions
 uvicorn
+putergenai
