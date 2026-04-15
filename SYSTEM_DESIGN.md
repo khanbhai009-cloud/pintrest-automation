@@ -1,478 +1,603 @@
-# SYSTEM DESIGN — Finisher Tech AI
-### Pinterest Automation System — Architecture Document
-**Language: Hinglish (Hindi + English mix) | Audience: Builder studying their own system**
+# SYSTEM DESIGN — Pinteresto (Finisher Tech AI) v3
+### Pinterest Automation System — Complete Architecture Document
+**Version:** v3 (70/30 Routing Architecture) | **Updated:** April 2026
 
 ---
 
-## SECTION 1 — THE BIRD'S EYE VIEW (Ek Nazar Mein Poora System)
+## SECTION 1 — SYSTEM KA BIRDS EYE VIEW
 
 ### Yeh system kya karta hai?
 
-"Finisher Tech AI" ek fully automated Pinterest marketing machine hai.  
-Iska ek hi kaam hai: **bina kisi human input ke, din mein 6 Pinterest pins post karna** — 2 accounts par, 3 pins each — aur yeh sab AI ke through hona chahiye.
+**Pinteresto** ek fully autonomous Pinterest marketing machine hai.  
+Iska ek hi kaam hai: **bina kisi human input ke, din mein 6 Pinterest pins post karna** — 2 accounts par, 3 pins each — real analytics padh ke, AI se strategy banake, aur automatically post karke.
 
-Pipeline ke 5 main phases hain:
-
-```
-[Scheduler Triggers] 
-       ↓
-[Mastermind CMO — Gemini analyzes analytics & decides strategy]
-       ↓
-[Fast Copywriters — Groq/Cerebras writes SEO title + description]
-       ↓
-[Execution Engine — Image generate karo, ImgBB pe upload karo]
-       ↓
-[Make.com Webhook — Pinterest pe post ho jaata hai]
-```
-
----
-
-### Do "Brains" hain system mein — Yeh samajhna ZAROORI hai
+### 3-Node Mastermind Pipeline (v3)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  BRAIN 1: CMO Mastermind (mastermind/graph.py)                      │
+│                     MASTERMIND CEO PIPELINE                         │
 │                                                                     │
-│  Yeh ek 4-node LangGraph pipeline hai.                              │
-│  Iska kaam hai: DATA padhna → STRATEGY banana → COPY likhna →       │
-│  IMAGE banana → Pinterest pe POST karna.                             │
+│  [Node 1]              [Node 2]              [Node 3]               │
+│  node_data       →     node_cmo        →     node_agent             │
+│  intelligence          mastermind            executor               │
 │                                                                     │
-│  Yeh apne andar sab kuch karta hai:                                 │
-│  node_data → node_cmo → node_copy → node_execute                    │
-│                                                                     │
-│  Yeh MAIN production pipeline hai jo scheduler call karta hai.      │
-└─────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────┐
-│  BRAIN 2: LangGraph Execution Agent (agent.py)                      │
-│                                                                     │
-│  Yeh ek reactive "tool-calling" agent hai.                          │
-│  Iska kaam hai: LLM (Groq/Cerebras) ko tools dena aur usse khud    │
-│  decide karne dena ki kya karna hai.                                │
-│                                                                     │
-│  Tools: fill_missing_niches, analyze_niche_stock,                  │
-│         fetch_aliexpress_products, publish_next_pin                  │
-│                                                                     │
-│  Yeh CMO Mastermind ka ek "toolkit" hai — aur standalone bhi        │
-│  run ho sakta hai debugging/single-account cycles ke liye.          │
+│  Google Sheets         Gemini 2.5            agent.py               │
+│  se analytics          Flash Lite            (LangGraph             │
+│  padhta hai            CMO brain             tool agent)            │
+│                        70/30 routing                                │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Simple Rule:** CMO Mastermind = Strategic Director. LangGraph Agent = Field Operator with tools.
+**v2 se v3 mein kya badla:**
+- Node 3 (Fast Copywriters) REMOVED — CMO ab khud hi copy likhta hai
+- Node 4 (Execution Engine) REMOVED — agent.py directly execute karta hai
+- I2I (Image-to-Image) REMOVED — affiliate pins ab raw product photo use karte hain
+- 70/30 routing ADDED — Gemini ab VIRAL_PIN ya AFFILIATE_PIN decide karta hai
 
 ---
 
-## SECTION 2 — VISUAL FLOWCHART (Mermaid.js)
+## SECTION 2 — COMPLETE VISUAL FLOWCHART (Mermaid.js)
 
 ```mermaid
 flowchart TD
-    A([APScheduler Trigger\nAccount1: 10AM-4PM EST\nAccount2: 7PM-1AM EST]) --> B
-    B[main.py\nmastermind_scheduled_job called] --> C
+    A([🕐 APScheduler Trigger\nAccount1: 10AM–4PM EST — 3 random slots\nAccount2: 7PM–1AM EST — 3 random slots]) --> B
 
-    subgraph MASTERMIND["MASTERMIND CEO GRAPH — mastermind/graph.py"]
+    B[main.py\nmastermind_scheduled_job] --> C
+
+    subgraph MASTERMIND["🧠 MASTERMIND CEO GRAPH — mastermind/graph.py"]
         direction TB
 
-        C[NODE 1 — node_data_intelligence\nGoogle Sheets se 7-day analytics padhta hai\nAcc1 sheet: Analytics_Log\nAcc2 sheet: Analytics_logs2] --> D
+        C[NODE 1 — node_data_intelligence\nGoogle Sheets se 7-day analytics padhta hai\nSheet1: Analytics_Log — Acc1 HomeDecor\nSheet2: Analytics_logs2 — Acc2 Tech\nMetrics: impressions, clicks, saves, outbound] --> D
 
-        D[NODE 2 — node_cmo_mastermind\nGemini 1.5 Flash — CMO Persona\nHigh Impressions Low Clicks — Visual Pivot\nHigh Engagement — Aggressive Affiliate Strike\nStagnant Growth — Viral-Bait] --> E
+        D{Gemini API\nAvailable?}
+        D -->|Yes| E[NODE 2 — node_cmo_mastermind\nGemini 2.5 Flash Lite\nAnalytics profile compute karo\nHigh-Impression/Low-Engagement or Stagnant or Conversion-Ready]
+        D -->|No — All retries failed| FB[Hardcoded VIRAL_PIN Fallback\nPipeline kabhi nahi rukti ✅]
 
-        E{Gemini\nAPI OK?}
-        E -->|Haan — Success| F[CMO Strategy JSON Output\nacc1: strategy, vibe, image_prompts\nacc2: strategy, vibe, image_prompts]
-        E -->|Nahi — Failed| G[Hardcoded Fallback Injected\nVisual Pivot for both accounts\nPipeline kabhi nahi rukti]
+        E --> R1[70/30 Routing per Account\nrandom.choices — weights 70 percent 30 percent\nEach account independently decided]
 
-        F --> H
-        G --> H
+        R1 -->|70 percent| VP[VIRAL_PIN Prompt to Gemini\nOutput: title, aesthetic description\ntags, detailed visual_prompt for T2I]
+        R1 -->|30 percent| AP[AFFILIATE_PIN Prompt to Gemini\nOutput: title, CTA description\ntags, visual_prompt = NONE]
 
-        H[NODE 3 — node_fast_copywriters\nGroq LLM — Llama 3.3 70B\nSEO Title max 100 chars\nSEO Description max 500 chars\n5 niche hashtags\nFallback — Cerebras Llama 3.3] --> I
+        VP --> CMO_OUT[CMO Strategy JSON\npin_type + strategy + vibe\ntitle + description + tags + visual_prompt]
+        AP --> CMO_OUT
+        FB --> CMO_OUT
 
-        I[NODE 4 — node_execution_engine\nStrategy read karo\nProduct Google Sheet se fetch karo\nImage pipeline mein route karo\nImgBB pe upload karo\nMake.com webhook call karo]
+        CMO_OUT --> H[NODE 3 — node_agent_executor\nStrategy → agent.py run_agent\nAcc1 trigger — account1\nAcc2 trigger — account2]
     end
 
-    I --> K
+    H --> I
 
-    subgraph IMAGE_PIPELINE["IMAGE PIPELINE — node_execute.py + agent.py"]
+    subgraph AGENT["🤖 LANGGRAPH AGENT — agent.py"]
         direction TB
 
-        K{Strategy\nkya hai?}
+        I[System Prompt Inject\nCMO brief injected — pin_type, strategy, visual_prompt\nGroq LLM tool-calling mode\nFallback: Cerebras] --> J
 
-        K -->|Visual Pivot\nor Viral-Bait| L[PATH A — Text-to-Image\nAffiliate Link STRIP ho jaati hai\nPure aesthetic pin banao]
-        K -->|Aggressive\nAffiliate Strike| M[PATH B — Image-to-Image\nAffiliate Link RAKHO\nProduct ko vibe mein composite karo]
+        J[STEP 1: fill_missing_niches\nSheet mein empty niche products scan karo\nGroq se classify karo\nsleep 2.5s between calls] --> K
 
-        L --> N[PRIMARY — Pollinations.ai\nGET pollinations.ai/p/encoded_prompt\nwidth=1024 height=1792 model=flux]
-        N -->|Success| P
-        N -->|Fail| O[FALLBACK — Puter.js REST API\nPOST api.puter.com/drivers/call\ninterface: puter-image-generation]
+        K[STEP 2: analyze_niche_stock\nAccount ke niches check karo\nCount PENDING products\nSelect target niche] --> L
 
-        M --> O2[Puter.js I2I API\nPOST api.puter.com/drivers/call\nmethod: edit\nargs: image_url plus aesthetic prompt]
-        O2 -->|Fail| NR[Last Resort\nPollinations T2I fallback]
+        L{needs_fetching?}
+        L -->|TRUE — Stock Low| M[STEP 3: fetch_aliexpress_products\nAmazon RapidAPI call\n20 raw products fetch\nGroq filter karo\nAffiliate link append\nGoogle Sheet mein save]
+        L -->|FALSE — Stock OK| N
 
-        O --> P
-        O2 --> P
-        NR --> P
-
-        P[Image Bytes Download\nhttpx.AsyncClient — async\nbytes memory mein load hote hain] --> Q
-
-        Q[ImgBB Mandatory Upload\nPOST api.imgbb.com/1/upload\nbase64 encoded image bytes\nexpiration = 1800 seconds — 30 min] --> R
-
-        R[ImgBB Hosted URL\ni.ibb.co/xxxxx/image.jpg\nPinterest ke liye stable public URL]
+        M --> N[STEP 4: publish_next_pin niche\nGoogle Sheet se PENDING product fetch\nCMO strategy read karo]
     end
 
-    R --> S[Make.com Webhook\nPOST MAKE_WEBHOOK_URL\nPayload — image_url, title\ncaption, link, board_id]
+    N --> PIN_ROUTE
 
-    S --> DONE([Pinterest pe Pin Live!])
-
-    subgraph AGENT["AGENT.PY — Standalone LangGraph Tool Agent"]
-        direction TB
-
-        T([run_agent called\nStandalone ya debug mode]) --> U
-        U[System Prompt Inject\nCMO strategy instructions\n5-step protocol] --> V
-        V[Groq LLM — Tool Calling Mode\nFallback — Cerebras] --> W
-
-        W -->|Step 1| X[fill_missing_niches\nSheet mein empty niche classify karo\nGroq se category decide karo]
-        W -->|Step 2| Y[analyze_niche_stock\nCount PENDING products\nSelect target niche]
-
-        Y -->|needs_fetching TRUE| Z[fetch_aliexpress_products\nAmazon RapidAPI call karo\nAffiliate tag append karo\nGoogle Sheet mein save karo]
-        Y -->|needs_fetching FALSE| AA[Stock sufficient\nRefill skip]
-
-        Z --> AA
-        AA -->|Step 4| AB[publish_next_pin\nniche + strategy + vibe + image_prompt\nroutes to IMAGE_PIPELINE above]
-    end
-
-    AB --> IMAGE_PIPELINE
-
-    subgraph SHEETS["Google Sheet — Central Database"]
+    subgraph PIN_ROUTE["📌 PIN ROUTING — 70/30 Logic"]
         direction LR
-        GS1[Approved Deals\nproduct_name, affiliate_link\nimage_url, niche, Status]
-        GS2[Analytics_Log — Account1]
-        GS3[Analytics_logs2 — Account2]
+
+        PR{pin_type\nfrom CMO?}
+
+        PR -->|VIRAL_PIN| VPR[T2I Image Generation\nAffiliate Link STRIPPED\nvisual_prompt used for generation]
+        PR -->|AFFILIATE_PIN| APR[Raw Product Image Used\nAffiliate Link KEPT\nNo AI image generated]
+
+        VPR --> T2I_P[PRIMARY: Pollinations.ai\nGET pollinations.ai/p/encoded_prompt\nwidth=1024 height=1792\nmodel=flux seed=random]
+        T2I_P -->|Success| IMGBB
+        T2I_P -->|Fail| T2I_FB[FALLBACK: Puter.js free tier\nclient.ai_txt2img prompt\nmodel=pollinations-image]
+        T2I_FB -->|Success| IMGBB
+        T2I_FB -->|Fail| RAW_FB[LAST RESORT: Raw product image\nNo affiliate link still]
+        RAW_FB --> IMGBB
+
+        APR --> RAW_DL[Download raw image_url\nhttpx.AsyncClient GET\nAmazon product photo bytes]
+        RAW_DL --> IMGBB
+
+        IMGBB[ImgBB Mandatory Upload\nPOST api.imgbb.com/1/upload\nbase64 encoded bytes\nexpiration=1800 seconds — 30 min\nReturns: i.ibb.co URL]
+    end
+
+    IMGBB --> WH[Make.com Webhook\nPOST MAKE_WEBHOOK_URL\nPayload: image_url, title, caption, link, board_id\nAccount1: HomeDecor boards\nAccount2: Tech boards]
+
+    WH --> DONE([📌 Pinterest Pin Live!\nmark_as_posted — Google Sheet\nStatus = POSTED])
+
+    subgraph SHEETS["📊 Google Sheets — Central Database"]
+        direction LR
+        GS1[Approved Deals\nproduct_name, affiliate_link\nimage_url, niche, Status PENDING or POSTED]
+        GS2[Analytics_Log — Account1 HomeDecor]
+        GS3[Analytics_logs2 — Account2 Tech]
     end
 
     C --> GS2
     C --> GS3
-    I --> GS1
-    Z --> GS1
+    M --> GS1
+    DONE --> GS1
 ```
 
 ---
 
-## SECTION 3 — TOOL CONNECTIONS DEEP DIVE
+## SECTION 3 — NODE BY NODE BREAKDOWN
 
-### 3.1 — agent.py apne tools se kaise connect hota hai?
-
-`agent.py` mein LangGraph ka **ToolNode pattern** use hota hai. Yeh kaam karta hai aisa:
+### Node 1 — `node_data_intelligence`
 
 ```
-LLM (Groq) ko saare tools bind karte hain:
-llm = ChatGroq(...).bind_tools([
-    fill_missing_niches,
-    analyze_niche_stock,
-    fetch_aliexpress_products,
-    publish_next_pin
-])
+File: mastermind/node_data.py
+Input: MastermindState (empty analytics lists)
+Output: a1_raw_analytics, a2_raw_analytics (7-day rows from Sheets)
 
-Phir StateGraph banate hain:
-  "agent" node  → LLM call karo
-  "tools" node  → LangGraph ka ToolNode (automatically tools execute karta hai)
-  
-Edge logic:
-  agent → tools  (agar LLM ne tool_calls return kiye)
-  tools → agent  (tool result wapas LLM ko bhejo)
-  agent → END    (agar koi tool call nahi)
-```
+Kya karta hai:
+  1. gspread se Google Sheets connection banata hai (GOOGLE_CREDS_JSON)
+  2. Analytics_Log sheet padhta hai — Account 1
+  3. Analytics_logs2 sheet padhta hai — Account 2
+  4. Last 7 rows return karta hai dono ke liye
+  5. Agar Sheets fail ho → fallback row inject karta hai (pipeline nahi rukti)
 
-**Simple analogy:** LLM ek manager hai. Jab usse koi kaam karna ho, woh "tool call request" bhejta hai. ToolNode ek junior employee hai jo woh kaam actually karta hai aur result wapas manager ko de deta hai. Yeh loop tab tak chalta hai jab tak kaam complete na ho.
-
----
-
-### 3.2 — `publish_next_pin` ka complete breakdown
-
-Yeh sabse complex tool hai. Step by step samajhte hain:
-
-```
-publish_next_pin(
-    niche = "home",                          ← Konsa board target karein
-    strategy = "Visual Pivot",               ← CMO ka decision
-    vibe = "Satisfying ASMR/Luxury...",      ← Gemini ka exact aesthetic command
-    image_prompt = "flat-lay marble..."      ← Image generation direction
-)
-```
-
-**Internal flow:**
-
-```
-STEP 1: Product fetch
-  get_pending_products(limit=1, allowed_niches=[niche])
-  → Google Sheet se pehla PENDING product laata hai
-  → product = { product_name, image_url, affiliate_link, ... }
-
-STEP 2: Affiliate link routing
-  IF strategy in ("Visual Pivot", "Viral-Bait"):
-      affiliate_link = ""   ← STRIP! Algorithm warm up karna hai
-  ELSE (Aggressive Affiliate Strike):
-      affiliate_link = product["affiliate_link"]  ← KEEP! Revenue time
-
-STEP 3: SEO copy generate karo
-  generate_pin_copy(product) via Groq LLM
-  → Returns: title (100 chars), description (500 chars), tags (5)
-
-STEP 4: Image pipeline route karo
-  _orchestrate_image(strategy, vibe, image_prompt, raw_product_image_url)
-  
-  PATH A (Visual Pivot / Viral-Bait):
-    _t2i_pollinations(prompt) → tries first
-    If fails → _t2i_puter(prompt) → fallback
-    
-  PATH B (Aggressive Affiliate Strike):
-    _i2i_puter(product_image_url, prompt) → product ko vibe mein composite karo
-    If fails → _t2i_pollinations(prompt) → last resort
-
-STEP 5: ImgBB mandatory gateway
-  image_bytes download karo (httpx.AsyncClient)
-  _upload_to_imgbb(image_bytes)
-  → POST https://api.imgbb.com/1/upload
-  → base64(image_bytes) + expiration=1800
-  → Returns: "https://i.ibb.co/xxxxx/image.jpg"
-
-STEP 6: Webhook call
-  post_to_pinterest(image_url=imgbb_url, title, description, link, tags)
-  → POST to Make.com webhook URL
-  → Make.com Pinterest pe pin create karta hai
-
-STEP 7: Mark as posted
-  mark_as_posted(product_name)
-  → Google Sheet mein Status = "POSTED"
+Output format:
+  [
+    { "Date": "2026-04-10", "Impressions": "12453", "Clicks": "234",
+      "Outbound Clicks": "89", "Saves": "178" },
+    ... (7 rows)
+  ]
 ```
 
 ---
 
-### 3.3 — Strategy Routing Logic — Visual Summary
+### Node 2 — `node_cmo_mastermind` (Main Brain)
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│  CMO Strategy = "Visual Pivot" ya "Viral-Bait"                 │
-├────────────────────────────────────────────────────────────────┤
-│  Goal: Algorithm ko warm up karo, trust banao                  │
-│  Image: Fresh AI-generated aesthetic (T2I)                     │
-│  Link:  EMPTY — koi affiliate link nahi                        │
-│  Flow:  Pollinations → (fail) → Puter T2I → ImgBB → Webhook   │
-└────────────────────────────────────────────────────────────────┘
+File: mastermind/node_cmo.py
+Model: Google Gemini 2.5 Flash Lite
+Input: a1_raw_analytics, a2_raw_analytics
+Output: a1_cmo_strategy, a2_cmo_strategy (per-account JSON)
 
-┌────────────────────────────────────────────────────────────────┐
-│  CMO Strategy = "Aggressive Affiliate Strike"                  │
-├────────────────────────────────────────────────────────────────┤
-│  Goal: Paise kamao — product sell karo                         │
-│  Image: Product image ko aesthetic vibe mein composite karo    │
-│         (I2I — product + background merge)                     │
-│  Link:  RAKHO — affiliate link full active                     │
-│  Flow:  Puter I2I → (fail) → Pollinations T2I → ImgBB →       │
-│         Webhook                                                │
-└────────────────────────────────────────────────────────────────┘
+Kya karta hai:
+  1. _compute_metrics() — 7-day averages calculate karta hai
+     Profile assign karta hai:
+       "High-Impression / Low-Engagement"  → impressions>5000, clicks<100, saves<100
+       "High-Engagement / Conversion-Ready" → clicks>200 ya saves>200
+       "Stagnant"                           → baaki sab cases
+
+  2. _choose_pin_type() — 70/30 routing
+     random.choices(["VIRAL_PIN", "AFFILIATE_PIN"], weights=[70, 30], k=1)
+     Dono accounts ke liye independently decide hota hai
+
+  3. Gemini ko appropriate prompt bhejta hai:
+     VIRAL_PIN prompt   → aesthetic content, visual_prompt for T2I generation
+     AFFILIATE_PIN prompt → CTA copy, visual_prompt = "NONE"
+
+  4. Tenacity retry — 3 attempts, 12s → 24s → 48s backoff
+     (Gemini 5 RPM rate limit handle karne ke liye)
+
+  5. Failure pe hardcoded VIRAL_PIN fallback inject karta hai
+
+Output per account:
+  {
+    "pin_type":     "VIRAL_PIN" | "AFFILIATE_PIN",
+    "strategy":     "Visual Pivot" | "Aggressive Affiliate Strike",
+    "vibe":         "short aesthetic command <120 chars",
+    "title":        "SEO optimized title <100 chars",
+    "description":  "Pinterest description <400 chars",
+    "tags":         ["tag1", "tag2", "tag3", "tag4", "tag5"],
+    "visual_prompt": "detailed T2I prompt" | "NONE"
+  }
 ```
 
 ---
 
-## SECTION 4 — THE DATA LIFECYCLE
-
-### 4A — Product Pin ka Safar (Aggressive Affiliate Strike)
-
-Ek Amazon product ka poora journey — Google Sheet se Pinterest tak:
+### Node 3 — `node_agent_executor`
 
 ```
-[DAY 0 — STOCKING PHASE]
+File: mastermind/graph.py (inline node)
+Input: a1_cmo_strategy, a2_cmo_strategy
+Output: a1_publish_status, a2_publish_status
 
-1. fetch_aliexpress_products(niche="kitchen") call hota hai
-   
-2. Amazon RapidAPI se query:
-   GET real-time-amazon-data.p.rapidapi.com/search
-   params: { query: "smart kitchen gadgets", country: "US" }
-   
-3. Response: 20 raw products
-   [{ asin: "B09XYZ", product_title: "Automatic Pot Stirrer",
-      product_price: "$24.99", product_star_rating: 4.3,
-      product_photo: "https://m.media-amazon.com/images/I/xyz.jpg" }]
+Kya karta hai:
+  1. Account 1 ke liye run_agent(trigger="account1", cmo_strategy=a1_strategy)
+  2. Account 2 ke liye run_agent(trigger="account2", cmo_strategy=a2_strategy)
+  3. Dono results publish status mein store karta hai
+```
 
-4. filter_product() via Groq LLM:
-   → Rating check, visual appeal check, viral potential check
-   → Approve/Reject decision
-   → "Automatic Pot Stirrer" → APPROVED ✅
+---
 
-5. enrich_with_affiliate_link():
-   product_url = "https://www.amazon.com/dp/B09XYZ"
-   affiliate_link = "https://www.amazon.com/dp/B09XYZ?tag=swiftmart0008-20"
+### LangGraph Agent — `agent.py`
 
-6. save_products() → Google Sheet mein save:
-   | product_name          | sale_price | rating | affiliate_link          | image_url      | niche   | Status  |
-   | Automatic Pot Stirrer | $24.99     | 4.3    | amazon.com/dp/...tag=.. | m.media-amaz.. | kitchen | PENDING |
+```
+Architecture: StateGraph — "agent" node ↔ "tools" node loop
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LLM: ChatGroq(Llama 3.3 70B).bind_tools(ALL_TOOLS)
+     .with_fallbacks([ChatOpenAI(Cerebras)])
 
-[PUBLISHING DAY — Jab scheduler trigger karta hai]
+Tools registered:
+  1. fill_missing_niches     → classify products without niche
+  2. analyze_niche_stock     → pick target niche, check stock
+  3. fetch_aliexpress_products → Amazon API + filter + save
+  4. publish_next_pin        → 70/30 routing + image + webhook
 
-7. node_data_intelligence:
-   Analytics sheet padhta hai → clicks=450, saves=320 (HIGH!)
-   
-8. node_cmo_mastermind (Gemini):
-   Gemini dekhta hai: "High Clicks + High Saves = Conversion Ready"
-   Output JSON:
+Loop logic:
+  agent → should_continue() → "tools" if tool_calls present
+                             → END    if no tool calls
+  tools → agent (return tool result to LLM)
+  Max iterations: 16 (loop guard)
+```
+
+---
+
+## SECTION 4 — TOOLS DEEP DIVE
+
+### `tools/llm.py` — LLM Wrapper
+
+```
+def chat(prompt: str, system: str = "", temperature: float = 0.7) -> str
+
+Priority: Groq (primary) → Cerebras (fallback)
+Safety:   str() coercion on all message content (prevents 400/422 errors)
+
+Models:
+  Groq:     llama-3.3-70b-versatile
+  Cerebras: llama3.3-70b
+```
+
+---
+
+### `tools/image_creator.py` — T2I Pipeline
+
+```
+Public functions:
+  generate_pin_image(visual_prompt)   → ImgBB URL (for VIRAL_PIN)
+  upload_raw_image(image_url)         → ImgBB URL (for AFFILIATE_PIN)
+
+T2I flow (generate_pin_image):
+  1. _t2i_pollinations(prompt):
+     GET pollinations.ai/p/{encoded_prompt}
+         ?width=1024&height=1792&nologo=true&model=flux&seed={random}
+     Timeout: 180s | Min bytes: 5000 (small response = reject)
+
+  2. On failure → _t2i_puter_free(prompt):
+     PuterClient().login(PUTER_USERNAME, PUTER_PASSWORD)
+     client.ai_txt2img(prompt, model="pollinations-image")
+
+  3. _upload_to_imgbb(bytes):
+     POST api.imgbb.com/1/upload
+     { key, image: base64(bytes), expiration: 1800 }
+     Returns: "https://i.ibb.co/xxxxx/image.jpg"
+
+Raw image flow (upload_raw_image):
+  1. httpx GET raw product image URL
+  2. _upload_to_imgbb(bytes)
+  Note: I2I completely removed in v3
+
+Key design decision:
+  ImgBB is MANDATORY — Pinterest requires a stable public URL.
+  Amazon/Pollinations URLs are unstable or throttled.
+  ImgBB provides 30-min guaranteed public access.
+```
+
+---
+
+### `tools/google_drive.py` — Google Sheets CRUD
+
+```
+Sheet: "Approved Deals" (SHEET_NAME in config.py)
+
+Functions:
+  get_pending_products(limit, allowed_niches) → filtered PENDING products
+  get_products_without_niche()               → products needing classification
+  count_pending()                            → total PENDING count
+  save_products(products)                    → append new products
+  mark_as_posted(product_name)               → Status = "POSTED"
+  update_niche(product_name, niche)          → set niche column
+
+Connection:
+  GOOGLE_CREDS_JSON → json.loads() → gspread.service_account_from_dict()
+  SPREADSHEET_ID    → spreadsheet.worksheet(SHEET_NAME)
+```
+
+---
+
+### `tools/make_webhook.py` — Pinterest Bridge
+
+```
+async def post_to_pinterest(image_url, title, description, link,
+                             tags, niche, target_account) -> bool
+
+Account selection:
+  target_account → exact name match in PINTEREST_ACCOUNTS
+  Falls back to first account if not found
+
+Board selection:
+  account["boards"][niche] → board-specific ID
+  Falls back to account["boards"]["default"]
+
+Payload:
+  {
+    "image_url": "https://i.ibb.co/...",
+    "title":     title[:100],
+    "caption":   description + "\n\n" + "#tag1 #tag2 ...",
+    "link":      affiliate_link | "",
+    "board_id":  "909445787192891736"
+  }
+
+Pinterest boards configured:
+  Account1 (HomeDecor): home, kitchen, cozy, gadgets, organize
+  Account2 (Tech):      tech, budget, phone, smarthome, wfh
+```
+
+---
+
+## SECTION 5 — DATA LIFECYCLE EXAMPLES
+
+### Example A — VIRAL_PIN Journey (70% of runs)
+
+```
+[TRIGGER — 2:14 PM EST, random slot]
+
+1. Analytics read:
+   Account 1 — impressions_avg: 1,200 | clicks_avg: 45 | profile: "Stagnant"
+
+2. CMO decision:
+   random.choices → VIRAL_PIN (70% probability won)
+   Gemini VIRAL prompt output:
    {
-     "account_1": {
-       "strategy": "Aggressive Affiliate Strike",
-       "vibe": "Satisfying ASMR/Luxury kitchen aesthetic, warm marble textures",
-       "image_prompts": ["Premium kitchen gadget on marble countertop, golden hour lighting"]
-     }
+     "pin_type": "VIRAL_PIN",
+     "strategy": "Visual Pivot",
+     "title": "5 Cozy Kitchen Touches That Feel Like a Hug ✨",
+     "description": "Transform your kitchen into the coziest corner of your home...",
+     "tags": ["CozyKitchen", "HomeAesthetic", "KitchenGoals", "CozyVibes", "HomeDecor"],
+     "visual_prompt": "Cozy kitchen flat-lay, ceramic mugs, warm golden steam,
+                       marble surface, linen cloth, soft bokeh, 8k hyperrealistic"
    }
 
-9. node_fast_copywriters (Groq):
-   Product data + CMO vibe → SEO copy generate:
-   title: "This $25 Pot Stirrer Changed My Cooking Forever ✨"
-   description: "Hands-free cooking ka naya level! Automatic pot stirrer..."
-   tags: ["KitchenHacks", "CookingGadgets", "HomeChef", "AmazonFinds", "KitchenOrganization"]
+3. agent.py:
+   fill_missing_niches → 0 updated
+   analyze_niche_stock → niche="kitchen", needs_fetching=False
+   publish_next_pin(niche="kitchen")
 
-10. node_execution_engine:
-    Strategy = "Aggressive Affiliate Strike" → PATH B (I2I)
-    
-    Puter I2I API call:
-    POST api.puter.com/drivers/call
-    {
-      method: "edit",
-      args: {
-        image_url: "https://m.media-amazon.com/images/I/xyz.jpg",  ← Raw Amazon product
-        prompt: "Premium kitchen gadget on marble countertop, golden hour, ASMR luxury"
-      }
-    }
-    → Puter returns: "https://puter-cdn.com/generated/abc123.jpg"
-    
-11. Image bytes download:
-    httpx.AsyncClient GET → 847,293 bytes in memory
+4. VIRAL_PIN routing:
+   affiliate_link = ""  ← STRIPPED
+   Pollinations.ai call → 1,024×1,792 aesthetic image → 847KB bytes
 
-12. ImgBB Upload:
-    POST api.imgbb.com/1/upload
-    { key: IMGBB_API_KEY, image: base64(...bytes...), expiration: 1800 }
-    → ImgBB returns: "https://i.ibb.co/mBxK2p/abc123.jpg"
+5. ImgBB upload → https://i.ibb.co/mBxK2p/viral_cozy.jpg
 
-13. Make.com Webhook:
-    POST https://hook.eu1.make.com/xxxxxxxxxxxxx
-    {
-      "image_url": "https://i.ibb.co/mBxK2p/abc123.jpg",
-      "title": "This $25 Pot Stirrer Changed My Cooking Forever ✨",
-      "caption": "Hands-free cooking... #KitchenHacks #CookingGadgets...",
-      "link": "https://www.amazon.com/dp/B09XYZ?tag=swiftmart0008-20",
-      "board_id": "909445787192891736"  ← Kitchen board
-    }
+6. Make.com webhook:
+   { image_url: "i.ibb.co/...", title: "5 Cozy Kitchen...",
+     caption: "Transform your kitchen...\n\n#CozyKitchen #HomeAesthetic...",
+     link: "",  ← no affiliate link
+     board_id: "909445787192891736" }
 
-14. Pinterest pe pin live! 🎉
-    mark_as_posted("Automatic Pot Stirrer")
-    → Google Sheet: Status = "POSTED"
+7. Pinterest pin posted → mark_as_posted → Status = "POSTED" ✅
 ```
 
 ---
 
-### 4B — Viral Pin ka Safar (Viral-Bait Strategy)
-
-Koi product nahi — sirf ek beautiful AI image jisse algorithm warm up ho:
+### Example B — AFFILIATE_PIN Journey (30% of runs)
 
 ```
-[Gemini CMO Decision]
-Analytics mein stagnation detect hota hai:
-  impressions_avg: 0 (naya account / inactive period)
-  Gemini output: strategy = "Viral-Bait"
-  vibe = "Apple-style Liquid Glassmorphism — frosted glass, cinematic"
-  image_prompt = "Minimalist WFH desk setup, iPhone floating on gradient"
+[TRIGGER — 8:43 PM EST, random slot]
 
-[Execution]
-Strategy = "Viral-Bait" → PATH A (T2I)
+1. Analytics read:
+   Account 2 — clicks_avg: 320 | saves_avg: 280 | profile: "High-Engagement / Conversion-Ready"
 
-Pollinations.ai call:
-GET pollinations.ai/p/Minimalist%20WFH%20desk%20setup%2C%20iPhone...
-   &width=1024&height=1792&nologo=true&model=flux&seed=47832
+2. CMO decision:
+   random.choices → AFFILIATE_PIN (30% probability won)
+   Gemini AFFILIATE prompt output:
+   {
+     "pin_type": "AFFILIATE_PIN",
+     "strategy": "Aggressive Affiliate Strike",
+     "title": "This $29 Smart Plug Pays for Itself in a Week 💡",
+     "description": "Cut your energy bill instantly. Control every device from your phone.
+                     Shop via link in bio before it sells out.",
+     "tags": ["SmartHome", "TechDeals", "HomeAutomation", "BudgetTech", "SmartPlug"],
+     "visual_prompt": "NONE"
+   }
 
-→ Image bytes download (pure AI generated, koi product nahi)
+3. agent.py:
+   fill_missing_niches → 2 updated
+   analyze_niche_stock → niche="smarthome", needs_fetching=False
+   publish_next_pin(niche="smarthome")
 
-ImgBB upload → Make.com webhook:
-{
-  "image_url": "https://i.ibb.co/xxxxx/viral.jpg",
-  "title": "Your Dream WFH Setup ✨",
-  "caption": "Aesthetic desk goals... #WFHSetup #DeskGoals...",
-  "link": "",          ← EMPTY — affiliate link STRIP ho gayi
-  "board_id": "1093952634426985796"  ← WFH board
-}
+4. AFFILIATE_PIN routing:
+   affiliate_link = "amazon.com/dp/B08XYZ?tag=swiftmart0008-20" ← KEPT
+   No AI image generated
+   Download raw image_url from product data → 423KB bytes
 
-→ Pinterest pe beautiful aesthetic pin post
-→ Algorithm engagement badhta hai
-→ Agli baar Gemini "Aggressive Affiliate Strike" trigger karega
-→ Tab real affiliate products post honge → Revenue 💰
-```
+5. ImgBB upload → https://i.ibb.co/kQpR7x/smart_plug.jpg
 
----
+6. Make.com webhook:
+   { image_url: "i.ibb.co/...", title: "This $29 Smart Plug...",
+     caption: "Cut your energy bill... #SmartHome #TechDeals...",
+     link: "amazon.com/dp/B08XYZ?tag=swiftmart0008-20",  ← affiliate link active
+     board_id: "1093952634426985795" }
 
-## SECTION 5 — KEY FILES AT A GLANCE
-
-| File | Role | Key Dependency |
-|---|---|---|
-| `main.py` | FastAPI server + APScheduler | `mastermind/graph.py` |
-| `mastermind/graph.py` | 4-node pipeline orchestrator | All 4 nodes |
-| `mastermind/node_data.py` | Analytics reader | `tools/google_drive.py` |
-| `mastermind/node_cmo.py` | Gemini CMO strategist | `google-genai` SDK |
-| `mastermind/node_copy.py` | SEO copy writer | `tools/llm.py` (Groq) |
-| `mastermind/node_execute.py` | Image gen + webhook | `tools/make_webhook.py` |
-| `agent.py` | Standalone LangGraph agent | All tools + LLM |
-| `tools/aliexpress.py` | Amazon product fetcher | RapidAPI |
-| `tools/admitad.py` | Affiliate link builder | `AMAZON_STORE_ID` |
-| `tools/google_drive.py` | Google Sheet CRUD | `gspread` |
-| `tools/groq_ai.py` | Product filter + copy gen | `tools/llm.py` |
-| `tools/llm.py` | LLM wrapper (Groq+Cerebras) | API keys |
-| `tools/make_webhook.py` | Pinterest poster | `MAKE_WEBHOOK_URL` |
-| `config.py` | All env vars centralized | `.env` / Replit secrets |
-
----
-
-## SECTION 6 — ENVIRONMENT VARIABLES (Kya Set Karna Hai)
-
-```
-# LLM APIs
-GROQ_API_KEY          → Groq (primary LLM — Llama 3.3 70B)
-CEREBRAS_API_KEY      → Cerebras (fallback LLM)
-GEMINI_API_KEY        → Google Gemini 1.5 (CMO brain)
-
-# Product Sourcing
-RAPIDAPI_KEY          → Amazon product search
-
-# Google Sheets (Analytics + Product DB)
-GOOGLE_CREDS_JSON     → Service account JSON (stringify karke dalo)
-SPREADSHEET_ID        → Google Sheet ka ID (URL mein hota hai)
-
-# Image Pipeline
-IMGBB_API_KEY         → ImgBB upload (MANDATORY gateway)
-PUTER_API_KEY         → Puter.js I2I / T2I fallback
-
-# Pinterest Webhooks
-MAKE_WEBHOOK_URL      → Account 1 (HomeDecor) Make.com webhook
-MAKE_WEBHOOK_URL_2    → Account 2 (Tech) Make.com webhook
+7. Pinterest pin posted → mark_as_posted → Status = "POSTED" ✅
 ```
 
 ---
 
-## SECTION 7 — QUICK REFERENCE: Kab Kya Hota Hai
+## SECTION 6 — RELIABILITY & FALLBACK MATRIX
 
 ```
-Scheduler trigger aata hai
-        ↓
-mastermind_scheduled_job() called
-        ↓
-run_mastermind(trigger="scheduled-account1")
-        ↓
-        ├── DATA node: Sheets se analytics
-        ├── CMO node: Gemini strategy decide karta hai
-        ├── COPY node: Groq SEO copy likhta hai
-        └── EXECUTE node:
-                ├── Stock check implicit (niche ke products fetch)
-                ├── Strategy route: Viral-Bait/Visual Pivot → T2I
-                │                  Affiliate Strike → I2I
-                ├── Pollinations → fail → Puter fallback
-                ├── Bytes → ImgBB (30 min temp URL)
-                └── ImgBB URL → Make.com → Pinterest ✅
+┌──────────────────┬───────────────────────┬────────────────────────────────┐
+│ Component        │ Primary               │ Fallback                       │
+├──────────────────┼───────────────────────┼────────────────────────────────┤
+│ LLM (chat)       │ Groq Llama 3.3 70B    │ Cerebras Llama 3.3 70B         │
+│ LLM (agent)      │ ChatGroq              │ ChatOpenAI → Cerebras endpoint  │
+│ CMO Brain        │ Gemini 2.5 Flash Lite │ Hardcoded VIRAL_PIN strategy    │
+│                  │ (3 retries: 12/24/48s)│                                │
+│ T2I Image        │ Pollinations.ai       │ Puter.js free tier             │
+│ T2I (last resort)│ Puter.js              │ Raw product image (no gen)     │
+│ Google Sheets    │ gspread connection    │ Fallback row injected          │
+│ Analytics        │ Live 7-day data       │ {"Date":"fallback"} → Stagnant │
+└──────────────────┴───────────────────────┴────────────────────────────────┘
+
+Pipeline NEVER stops — every single node has a fallback path.
 ```
 
 ---
 
-*Document generated by Lead Systems Architect AI — Finisher Tech AI v2.0*  
-*Last updated: April 2026*
+## SECTION 7 — ANALYTICS PROFILE → STRATEGY MAPPING
+
+```
+Analytics Profile Computation (_compute_metrics):
+
+  impressions_avg = average of last 7 days Impressions column
+  clicks_avg      = average of last 7 days Clicks column
+  saves_avg       = average of last 7 days Saves column
+
+  IF impressions_avg > 5000 AND clicks_avg < 100 AND saves_avg < 100:
+      profile = "High-Impression / Low-Engagement"
+      → Content dekha ja raha hai but engage nahi ho raha
+      → VIRAL_PIN more likely (algorithm ko engage signal chahiye)
+
+  ELIF clicks_avg > 200 OR saves_avg > 200:
+      profile = "High-Engagement / Conversion-Ready"
+      → Audience warm hai → AFFILIATE_PIN aur effective hoga
+      → 30% chance already hai, Gemini context mein bold CTA likhega
+
+  ELSE:
+      profile = "Stagnant"
+      → Account slow hai → VIRAL_PIN dominant (trust rebuild)
+
+Note: Profile sirf Gemini ke PROMPT mein context deta hai.
+      Routing (70/30) ALWAYS random.choices se hoti hai.
+      Gemini analytics ko padhke COPY style adjust karta hai.
+```
+
+---
+
+## SECTION 8 — KEY FILES REFERENCE
+
+| File | Role | Key Dependencies |
+|------|------|-----------------|
+| `main.py` | FastAPI server + APScheduler + API endpoints + AI chat | `mastermind/graph.py`, `tools/llm.py` |
+| `agent.py` | LangGraph tool-calling execution agent (v3) | All tools, LangGraph |
+| `config.py` | Centralized environment variable definitions | `python-dotenv` |
+| `mastermind/graph.py` | 3-node LangGraph pipeline + run_mastermind() entry point | All nodes |
+| `mastermind/state.py` | MastermindState TypedDict — isolated per-account state | typing_extensions |
+| `mastermind/node_data.py` | Reads analytics from Google Sheets | `tools/google_drive.py` |
+| `mastermind/node_cmo.py` | Gemini CMO — 70/30 routing + content generation | `google-genai`, tenacity |
+| `tools/llm.py` | Unified LLM wrapper (Groq → Cerebras) with str() safety | `groq`, `cerebras-cloud-sdk` |
+| `tools/aliexpress.py` | Amazon product search via RapidAPI | `httpx`, `RAPIDAPI_KEY` |
+| `tools/admitad.py` | Affiliate link builder (Amazon tag appender) | `AMAZON_STORE_ID` |
+| `tools/google_drive.py` | Google Sheets CRUD — product DB + analytics reads | `gspread`, `google-auth` |
+| `tools/groq_ai.py` | Product filter + fallback SEO copy generator | `tools/llm.py` |
+| `tools/image_creator.py` | T2I pipeline (Pollinations → Puter) + ImgBB upload | `httpx`, `putergenai` |
+| `tools/make_webhook.py` | Pinterest poster via Make.com webhook | `httpx`, `config.PINTEREST_ACCOUNTS` |
+
+---
+
+## SECTION 9 — ENVIRONMENT VARIABLES COMPLETE LIST
+
+```bash
+# ── LLM APIs ──────────────────────────────────────────────────────────
+GROQ_API_KEY           # Groq API key — primary LLM (Llama 3.3 70B)
+CEREBRAS_API_KEY       # Cerebras API key — fallback LLM
+GEMINI_API_KEY         # Google Gemini key — CMO Mastermind brain
+
+# ── Product Sourcing ───────────────────────────────────────────────────
+RAPIDAPI_KEY           # RapidAPI key — Amazon product search endpoint
+
+# ── Google Sheets ──────────────────────────────────────────────────────
+GOOGLE_CREDS_JSON      # Full service account JSON (json.dumps of the file)
+SPREADSHEET_ID         # Google Spreadsheet ID (from sheet URL)
+
+# ── Image Pipeline ──────────────────────────────────────────────────────
+IMGBB_API_KEY          # ImgBB API key — mandatory upload gateway
+PUTER_USERNAME         # Puter.js account username (T2I fallback)
+PUTER_PASSWORD         # Puter.js account password (T2I fallback)
+
+# ── Pinterest via Make.com ─────────────────────────────────────────────
+MAKE_WEBHOOK_URL       # Make.com webhook URL — Account 1 (HomeDecor)
+MAKE_WEBHOOK_URL_2     # Make.com webhook URL — Account 2 (Tech)
+```
+
+---
+
+## SECTION 10 — SCHEDULER DESIGN
+
+```
+main.py APScheduler (AsyncIOScheduler, timezone=America/New_York)
+
+Jobs configured at startup:
+  1. "daily_randomizer" — cron: hour=8, minute=0
+     Calls schedule_random_pins() every day at 8 AM EST
+     Clears old random_ jobs and sets 6 new random slots
+
+  schedule_random_pins() logic:
+    Account 1 slots (3x): 10:00 AM + random(0-360 min) → max 4:00 PM
+    Account 2 slots (3x): 7:00 PM  + random(0-360 min) → max 1:00 AM
+
+  Each slot calls mastermind_scheduled_job(trigger=...)
+  → trigger="scheduled-account1" | "scheduled-account2"
+
+Concurrency guard:
+  IF state["mastermind_running"] == True:
+      logger.warning("Already running. Skipping.")
+      return
+  → Prevents overlapping runs from multiple random slots
+```
+
+---
+
+## SECTION 11 — WEB DASHBOARD & API ENDPOINTS
+
+```
+FastAPI app served at port 5000
+
+Static frontend: static/index.html
+  → Real-time stats display
+  → Manual trigger buttons
+  → AI chat interface (Hinglish — uses Groq LLM)
+
+REST Endpoints:
+  GET  /                          → index.html dashboard
+  GET  /api/stats                 → product counts + posting stats
+  GET  /api/mastermind/stats      → pipeline status + scheduled slots
+  GET  /api/products              → first 50 products from Sheet
+  POST /api/mastermind/run        → trigger both accounts manually
+  POST /api/mastermind/run-account1 → trigger Account 1 only
+  POST /api/mastermind/run-account2 → trigger Account 2 only
+  POST /api/mastermind/stop       → graceful stop signal
+  POST /api/fetch-products        → fetch new Amazon products
+  POST /api/fill-niches           → classify untagged products
+  POST /api/chat                  → AI chat (detects commands in message)
+
+Chat system:
+  System prompt: PINTERESTO AI assistant (Hinglish persona)
+  Command detection: "mastermind", "account 1", "stop", "status" etc.
+  Action triggers: [ACTION:action_name] tag parsed from LLM response
+  Background execution: actions run via FastAPI BackgroundTasks
+```
+
+---
+
+## SECTION 12 — DEPLOYMENT
+
+```
+Replit deployment (production):
+  gunicorn --bind=0.0.0.0:5000 --reuse-port
+           --worker-class uvicorn.workers.UvicornWorker main:app
+
+Docker (Hugging Face Spaces / self-hosted):
+  See Dockerfile in project root
+
+Port mapping:
+  Internal: 5000
+  External: 80 (Replit proxied)
+
+Production environment variables:
+  Set via Replit Secrets panel (never hardcode in source)
+```
+
+---
+
+*PINTERESTO v3 — Finisher Tech AI*  
+*Architecture by Lead Systems AI | Last updated: April 2026*
