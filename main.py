@@ -15,9 +15,17 @@ from agent import run_agent, fill_missing_niches, fetch_aliexpress_products
 from mastermind.graph import run_mastermind
 from tools.google_drive import get_all_products
 from tools.llm import chat
+from config import GEMINI_API_KEY
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
+
+# ── Gemini Client (for CMO chat) ───────────────────────────────────────────────
+try:
+    from google import genai as _genai
+    _gemini_client = _genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+except Exception:
+    _gemini_client = None
 
 # ── Global State ──────────────────────────────────────────────────────────────
 state = {
@@ -315,6 +323,74 @@ async def chat_endpoint(req: ChatMessage, background_tasks: BackgroundTasks):
         "action": action,
         "action_msg": action_msg,
     }
+
+# ── CEO Mastermind Chat (Gemini) ───────────────────────────────────────────────
+CMO_SYSTEM_PROMPT = """You are the CEO MASTERMIND of "Pinteresto — Finisher Tech AI", a fully autonomous Pinterest marketing empire.
+You are a strategic genius who thinks like a top-tier CMO. You speak in a friendly, confident, slightly bold style — like a smart business friend who knows Pinterest inside out.
+Mix English with a little Hinglish when it feels natural, but keep it professional and sharp.
+
+YOUR KNOWLEDGE BASE:
+- System runs 6 pins/day across 2 Pinterest accounts (3 pins each via scheduled automation)
+- Account 1: HomeDecor niches — home, kitchen, cozy, organize, gadgets
+- Account 2: Tech niches — tech, budget, phone, smarthome, wfh
+- Pin routing: 70% VIRAL_PIN (AI-generated T2I image, strip affiliate link for clean viral reach) / 30% AFFILIATE_PIN (raw product image, keep affiliate link for direct revenue)
+- Image generation: Gemini 2.5 Flash Image (primary, 9:16 portrait) → Puter.js free tier (fallback)
+- CMO Brain: Gemini 2.5 Flash Lite reads analytics → decides strategy → writes title, description, tags, visual_prompt
+- Strategies: Visual Pivot, Viral-Bait, Aggressive Affiliate Strike, Niche Authority Play
+- LLM Stack: Groq Llama 3.3 70B (primary execution agent) → Cerebras fallback
+- Products: Amazon via RapidAPI → filtered by quality → stored in Google Sheets
+- Delivery: ImgBB temp hosting → Make.com webhook → Pinterest
+
+YOUR ROLE IN THIS CHAT:
+- Be the strategic advisor — help with content strategy, niche decisions, growth tactics
+- Explain what the system is doing and WHY (the strategic logic behind decisions)
+- Give data-driven opinions on Pinterest growth, viral content, affiliate marketing
+- Suggest improvements, new niches, or content angles when asked
+- Keep responses crisp — 3-5 sentences max unless a detailed breakdown is asked
+- Never be boring. Be energetic but grounded in strategy."""
+
+@app.post("/api/cmo-chat")
+async def cmo_chat_endpoint(req: ChatMessage):
+    msg = req.message.strip()
+    if not msg:
+        return {"response": "Ask me anything about strategy, growth, or the system! 🧠", "action": None}
+
+    if not _gemini_client:
+        return {
+            "response": "Gemini API key nahi mila — GEMINI_API_KEY secret set karo aur restart karo. 🔑",
+            "action": None
+        }
+
+    sys_ctx = (
+        f"Live system snapshot — "
+        f"Mastermind: {'RUNNING 🟢' if state['mastermind_running'] else 'IDLE ⚪'}. "
+        f"Last run: {state['mastermind_last_run'] or 'Never'}. "
+        f"Account 1 strategy: {state['mastermind_a1_strategy']}. "
+        f"Account 2 strategy: {state['mastermind_a2_strategy']}. "
+        f"Pins posted today: {state['posted_today']}."
+    )
+
+    full_prompt = f"{CMO_SYSTEM_PROMPT}\n\n[LIVE CONTEXT]: {sys_ctx}\n\n[USER]: {msg}\n\n[CEO MASTERMIND]:"
+
+    try:
+        from google.genai import types as _gtypes
+        response = await asyncio.to_thread(
+            lambda: _gemini_client.models.generate_content(
+                model="gemini-2.0-flash-lite",
+                contents=full_prompt,
+                config=_gtypes.GenerateContentConfig(
+                    temperature=0.8,
+                    max_output_tokens=350,
+                )
+            )
+        )
+        reply = response.text.strip() if response.text else "Strategy mode mein hoon — thodi der baad pooch! 🧠"
+    except Exception as e:
+        logger.error(f"CMO chat error: {e}")
+        reply = "Mastermind temporarily offline. Board meeting mein hoon — 2 minute mein wapas! 😄"
+
+    return {"response": reply, "action": None}
+
 
 if __name__ == "__main__":
     import uvicorn
