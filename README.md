@@ -1,3 +1,14 @@
+---
+title: Pinteresto
+emoji: 🚀
+colorFrom: blue
+colorTo: purple
+sdk: docker
+pinned: false
+---
+
+
+
 <div align="center">
 
 # 📌 PINTERESTO — Finisher Tech AI
