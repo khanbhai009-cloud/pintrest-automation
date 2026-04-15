@@ -1,4 +1,4 @@
-modules = ["python-3.12", "bash", "web"]
+modules = ["python-3.12", "web", "bash"]
 [agent]
 expertMode = true
 
