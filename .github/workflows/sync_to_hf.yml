@@ -1,20 +1,24 @@
-name: Sync to Hugging Face
+name: Sync to Hugging Face Hub
+
 on:
   push:
-    branches: [main] # Ya jo bhi tumhari primary branch ho
+    branches: [main]
+  # Isse tum manually bhi trigger kar sakte ho GitHub se
+  workflow_dispatch:
 
 jobs:
   sync-to-hub:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
           lfs: true
 
-      - name: Push to HF
+      - name: Push to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # Yaha apni HF repo ka URL dalo
-          git push --force https://FinisherTechAI:$HF_TOKEN@huggingface.co/spaces/YOUR_USERNAME/YOUR_SPACE_NAME main
+          # Username ki jagah tumhara HF handle use kiya hai for better clarity
+          git push --force https://ksksysy540:$HF_TOKEN@huggingface.co/spaces/ksksysy540/pinteresto main
