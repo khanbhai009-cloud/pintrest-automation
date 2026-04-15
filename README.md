@@ -127,8 +127,8 @@ The CMO brain (Gemini) independently routes each account every cycle using weigh
 | **Execution Agent** | Groq Llama 3.3 70B | LangGraph tool-calling agent — decides which tools to invoke and in what order |
 | **Fallback LLM** | Cerebras Llama 3.3 70B | Automatic failover when Groq is unavailable |
 | **Product Filter** | Groq Llama 3.3 70B | Screens Amazon products for quality & Pinterest fit |
-| **Image Gen (Primary)** | Pollinations.ai (Flux) | Free T2I — 1024×1792 Pinterest portrait |
-| **Image Gen (Fallback)** | Puter.js free tier | T2I backup using Puter credentials |
+| **Image Gen (Primary)** | Gemini 2.5 Flash Image | Free T2I — 9:16 portrait, 15 RPM / 1,500 RPD, 60s rate-limit delay enforced |
+| **Image Gen (Fallback)** | Puter.js free tier | T2I backup using Puter credentials — no RPM restriction |
 
 ---
 
@@ -314,14 +314,19 @@ Same structure as Sheet 2.
 ```
 Every critical path has a fallback:
 
-LLM:     Groq (primary)  ──fail──▶  Cerebras (fallback)
+LLM:     Groq (primary)         ──fail──▶  Cerebras (fallback)
 
-T2I:     Pollinations    ──fail──▶  Puter free tier
-                                         │
-                                    ──fail──▶  Raw product image
+T2I:     Gemini Flash Image     ──fail──▶  Puter free tier
+         (60s rate-limit delay)                  │
+                                           ──fail──▶  Raw product image
 
-Gemini:  Live API call   ──fail──▶  Hardcoded "Visual Pivot" strategy
-         (with tenacity  (12s → 24s → 48s retry backoff)
+CMO:     Gemini Flash Lite      ──fail──▶  Hardcoded "Visual Pivot" strategy
+         (tenacity: 12s → 24s → 48s retry backoff)
+
+Rate limiting (Gemini image — free tier):
+  • 15 RPM / 1,500 RPD allowed
+  • Enforced: 60-second asyncio.sleep() after EVERY request (finally block)
+  • Result: max 1 req/min — zero chance of hitting rate limits
 ```
 
 ---
@@ -354,7 +359,7 @@ python main.py
 | Primary LLM | Groq — Llama 3.3 70B |
 | Fallback LLM | Cerebras — Llama 3.3 70B |
 | CMO Brain | Google Gemini 2.5 Flash Lite |
-| Image Generation | Pollinations.ai (Flux model) |
+| Image Generation | Gemini 2.5 Flash Image (9:16, 60s rate-limit guard) |
 | Image Fallback | Puter.js free tier |
 | Image Hosting | ImgBB (30-min temp URLs) |
 | Database | Google Sheets via gspread |

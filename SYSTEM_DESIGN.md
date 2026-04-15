@@ -255,30 +255,49 @@ Public functions:
   generate_pin_image(visual_prompt)   → ImgBB URL (for VIRAL_PIN)
   upload_raw_image(image_url)         → ImgBB URL (for AFFILIATE_PIN)
 
-T2I flow (generate_pin_image):
-  1. _t2i_pollinations(prompt):
-     GET pollinations.ai/p/{encoded_prompt}
-         ?width=1024&height=1792&nologo=true&model=flux&seed={random}
-     Timeout: 180s | Min bytes: 5000 (small response = reject)
+Primary T2I — _t2i_gemini(prompt):
+  Model:  gemini-2.5-flash-image  (set via GEMINI_IMAGE_MODEL in config.py)
+  API:    client.models.generate_content(
+              model=GEMINI_IMAGE_MODEL,
+              contents=enhanced_prompt,
+              config=GenerateContentConfig(response_modalities=["IMAGE"])
+          )
+  Ratio:  9:16 portrait — optimal for Pinterest pins
+  Output: response.candidates[0].content.parts → inline_data.data
+          (bytes or base64 string depending on SDK version — both handled)
 
-  2. On failure → _t2i_puter_free(prompt):
-     PuterClient().login(PUTER_USERNAME, PUTER_PASSWORD)
-     client.ai_txt2img(prompt, model="pollinations-image")
+  ── RATE LIMITING (free tier: 15 RPM / 1,500 RPD) ──────────────────
+  Strategy: Mandatory 60-second asyncio.sleep() in `finally` block
+            Runs after EVERY request — success OR failure
+            Result: max 1 request/minute (well within 15 RPM limit)
+            No token bucket or sliding window needed — simple & auditable
 
-  3. _upload_to_imgbb(bytes):
-     POST api.imgbb.com/1/upload
-     { key, image: base64(bytes), expiration: 1800 }
-     Returns: "https://i.ibb.co/xxxxx/image.jpg"
+  ── Rate limit visual ───────────────────────────────────────────────
+  Request → [Gemini processes ~5-15s] → Response received
+       └─ finally block: asyncio.sleep(60) ← always runs
+       Next request allowed only after 60s gap
+  ────────────────────────────────────────────────────────────────────
 
-Raw image flow (upload_raw_image):
+Fallback T2I — _t2i_puter_free(prompt):
+  PuterClient().login(PUTER_USERNAME, PUTER_PASSWORD)
+  client.ai_txt2img(prompt, model="pollinations-image")
+  No rate-limit delay — Puter has no strict RPM limits
+  Called only when Gemini returns no image or is not configured
+
+ImgBB upload — _upload_to_imgbb(bytes):
+  POST api.imgbb.com/1/upload
+  { key: IMGBB_API_KEY, image: base64(bytes), expiration: 1800 }
+  Returns: "https://i.ibb.co/xxxxx/image.jpg"
+
+Raw image flow — upload_raw_image(url):
   1. httpx GET raw product image URL
   2. _upload_to_imgbb(bytes)
-  Note: I2I completely removed in v3
+  Used by AFFILIATE_PIN — no AI generation, no rate limiting
 
 Key design decision:
   ImgBB is MANDATORY — Pinterest requires a stable public URL.
-  Amazon/Pollinations URLs are unstable or throttled.
-  ImgBB provides 30-min guaranteed public access.
+  Amazon CDN URLs expire and get throttled by Pinterest.
+  ImgBB provides 30-min guaranteed public access for webhook delivery.
 ```
 
 ---
