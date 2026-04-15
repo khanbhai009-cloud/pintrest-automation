@@ -66,70 +66,84 @@ Pipeline ke 5 main phases hain:
 
 ```mermaid
 flowchart TD
-    A([🕐 APScheduler Trigger\nHar roz random time pe\nAccount1: 10AM-4PM\nAccount2: 7PM-1AM]) --> B
+    A([APScheduler Trigger\nAccount1: 10AM-4PM EST\nAccount2: 7PM-1AM EST]) --> B
+    B[main.py\nmastermind_scheduled_job called] --> C
 
-    B[main.py\nmastermind_scheduled_job] --> C
+    subgraph MASTERMIND["MASTERMIND CEO GRAPH — mastermind/graph.py"]
+        direction TB
 
-    subgraph MASTERMIND_GRAPH["🧠 MASTERMIND CEO GRAPH (mastermind/graph.py)"]
-        C[NODE 1: node_data_intelligence\nGoogle Sheets se 7-day analytics padhta hai\nAccount1 → Analytics_Log sheet\nAccount2 → Analytics_logs2 sheet] --> D
+        C[NODE 1 — node_data_intelligence\nGoogle Sheets se 7-day analytics padhta hai\nAcc1 sheet: Analytics_Log\nAcc2 sheet: Analytics_logs2] --> D
 
-        D[NODE 2: node_cmo_mastermind\nGemini 1.5 Flash ko analytics data bhejta hai\nGemini CMO persona mein sochta hai:\nHigh Impressions + Low Clicks → Visual Pivot\nHigh Engagement → Aggressive Affiliate Strike\nStagnant Growth → Viral-Bait] --> E
+        D[NODE 2 — node_cmo_mastermind\nGemini 1.5 Flash — CMO Persona\nHigh Impressions Low Clicks — Visual Pivot\nHigh Engagement — Aggressive Affiliate Strike\nStagnant Growth — Viral-Bait] --> E
 
-        E{Gemini API\nSuccessful?}
-        E -- Haan ✅ --> F[CMO JSON Strategy Output\n{\n  account_1: { strategy, vibe, image_prompts },\n  account_2: { strategy, vibe, image_prompts }\n}]
-        E -- Nahi ❌ --> G[Hardcoded Fallback:\nVisual Pivot strategy inject hoti hai\nPipeline kabhi nahi rukti]
+        E{Gemini\nAPI OK?}
+        E -->|Haan — Success| F[CMO Strategy JSON Output\nacc1: strategy, vibe, image_prompts\nacc2: strategy, vibe, image_prompts]
+        E -->|Nahi — Failed| G[Hardcoded Fallback Injected\nVisual Pivot for both accounts\nPipeline kabhi nahi rukti]
+
         F --> H
         G --> H
 
-        H[NODE 3: node_fast_copywriters\nGroq LLM — Llama 3.3 70B\nSEO Title 100 chars\nDescription 500 chars\n5 Niche hashtags\nFallback: Cerebras Llama 3.3] --> I
+        H[NODE 3 — node_fast_copywriters\nGroq LLM — Llama 3.3 70B\nSEO Title max 100 chars\nSEO Description max 500 chars\n5 niche hashtags\nFallback — Cerebras Llama 3.3] --> I
 
-        I[NODE 4: node_execution_engine\nStrategy read karo\nProduct fetch karo Google Sheet se\nImage pipeline route karo\nImgBB pe upload karo\nMake.com webhook call karo] --> J
+        I[NODE 4 — node_execution_engine\nStrategy read karo\nProduct Google Sheet se fetch karo\nImage pipeline mein route karo\nImgBB pe upload karo\nMake.com webhook call karo]
     end
 
-    J([📌 Pinterest pe Pin Post Ho Gaya!])
+    I --> K
 
-    subgraph IMAGE_PIPELINE["🎨 IMAGE PIPELINE (node_execute.py + agent.py)"]
-        I --> K{Strategy kya hai?}
+    subgraph IMAGE_PIPELINE["IMAGE PIPELINE — node_execute.py + agent.py"]
+        direction TB
 
-        K -- Visual Pivot\nYA Viral-Bait --> L[PATH A: Text-to-Image\nAffiliate Link STRIP karo\nPure aesthetic pin]
-        K -- Aggressive\nAffiliate Strike --> M[PATH B: Image-to-Image\nAffiliate Link RAKHO\nProduct composite karo]
+        K{Strategy\nkya hai?}
 
-        L --> N[PRIMARY: Pollinations.ai\nGET /p/encoded_prompt\n?width=1024&height=1792\n&model=flux]
-        N -- Success ✅ --> P
-        N -- Fail ❌ --> O[FALLBACK: Puter.js REST API\nPOST /drivers/call\ninterface: puter-image-generation]
+        K -->|Visual Pivot\nor Viral-Bait| L[PATH A — Text-to-Image\nAffiliate Link STRIP ho jaati hai\nPure aesthetic pin banao]
+        K -->|Aggressive\nAffiliate Strike| M[PATH B — Image-to-Image\nAffiliate Link RAKHO\nProduct ko vibe mein composite karo]
 
-        M --> O2[Puter.js I2I API\nPOST /drivers/call\nmethod: edit\nimage_url + aesthetic prompt]
-        O2 -- Fail ❌ --> N2[Last Resort:\nPollinations T2I]
+        L --> N[PRIMARY — Pollinations.ai\nGET pollinations.ai/p/encoded_prompt\nwidth=1024 height=1792 model=flux]
+        N -->|Success| P
+        N -->|Fail| O[FALLBACK — Puter.js REST API\nPOST api.puter.com/drivers/call\ninterface: puter-image-generation]
+
+        M --> O2[Puter.js I2I API\nPOST api.puter.com/drivers/call\nmethod: edit\nargs: image_url plus aesthetic prompt]
+        O2 -->|Fail| NR[Last Resort\nPollinations T2I fallback]
 
         O --> P
         O2 --> P
-        N2 --> P
+        NR --> P
 
-        P[Image Bytes Download\nhttpx.AsyncClient se\nbytes memory mein]
-        P --> Q[⬆️ ImgBB Upload\nPOST api.imgbb.com/1/upload\nbase64 encoded bytes\nexpiration=1800 seconds\n30 min temporary URL]
-        Q --> R[ImgBB Direct URL\nhttps://i.ibb.co/xxxxx/img.jpg]
+        P[Image Bytes Download\nhttpx.AsyncClient — async\nbytes memory mein load hote hain] --> Q
+
+        Q[ImgBB Mandatory Upload\nPOST api.imgbb.com/1/upload\nbase64 encoded image bytes\nexpiration = 1800 seconds — 30 min] --> R
+
+        R[ImgBB Hosted URL\ni.ibb.co/xxxxx/image.jpg\nPinterest ke liye stable public URL]
     end
 
-    R --> S[Make.com Webhook\nPOST to MAKE_WEBHOOK_URL\nPayload:\n- image_url: ImgBB URL\n- title, caption, link\n- board_id]
+    R --> S[Make.com Webhook\nPOST MAKE_WEBHOOK_URL\nPayload — image_url, title\ncaption, link, board_id]
 
-    subgraph AGENT_BRAIN["🤖 AGENT.PY — LangGraph Tool Agent"]
-        T([Standalone Trigger\nrun_agent called]) --> U
-        U[SystemPrompt inject:\nCMO strategy instructions\n5-step protocol] --> V
-        V[Groq LLM\nTool Calling Mode] --> W
+    S --> DONE([Pinterest pe Pin Live!])
 
-        W -- Step 1 --> X[fill_missing_niches\nEmpty niche columns classify karo]
-        W -- Step 2 --> Y[analyze_niche_stock\nStock count check karo]
-        Y -- needs_fetching: True --> Z[fetch_aliexpress_products\nAmazon RapidAPI se products laao\nAdmitad affiliate link add karo\nGoogle Sheet mein save karo]
-        Y -- needs_fetching: False --> AA[Skip refill]
+    subgraph AGENT["AGENT.PY — Standalone LangGraph Tool Agent"]
+        direction TB
+
+        T([run_agent called\nStandalone ya debug mode]) --> U
+        U[System Prompt Inject\nCMO strategy instructions\n5-step protocol] --> V
+        V[Groq LLM — Tool Calling Mode\nFallback — Cerebras] --> W
+
+        W -->|Step 1| X[fill_missing_niches\nSheet mein empty niche classify karo\nGroq se category decide karo]
+        W -->|Step 2| Y[analyze_niche_stock\nCount PENDING products\nSelect target niche]
+
+        Y -->|needs_fetching TRUE| Z[fetch_aliexpress_products\nAmazon RapidAPI call karo\nAffiliate tag append karo\nGoogle Sheet mein save karo]
+        Y -->|needs_fetching FALSE| AA[Stock sufficient\nRefill skip]
+
         Z --> AA
-        AA --> AB[publish_next_pin\nniche + strategy + vibe + image_prompt]
-        AB --> IMAGE_PIPELINE
+        AA -->|Step 4| AB[publish_next_pin\nniche + strategy + vibe + image_prompt\nroutes to IMAGE_PIPELINE above]
     end
 
-    subgraph GOOGLE_SHEET["📊 Google Sheet — Central Database"]
-        GS1[Approved Deals Sheet\nColumns: product_name, product_id,\nsale_price, rating, orders,\naffiliate_link, image_url,\nkeyword, niche, Status]
-        GS2[Analytics_Log - Account1]
-        GS3[Analytics_logs2 - Account2]
+    AB --> IMAGE_PIPELINE
+
+    subgraph SHEETS["Google Sheet — Central Database"]
+        direction LR
+        GS1[Approved Deals\nproduct_name, affiliate_link\nimage_url, niche, Status]
+        GS2[Analytics_Log — Account1]
+        GS3[Analytics_logs2 — Account2]
     end
 
     C --> GS2
