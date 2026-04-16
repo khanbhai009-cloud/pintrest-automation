@@ -108,7 +108,6 @@ ABSOLUTE RULES (violating any = system failure):
 4. VIRAL_PIN: NO product names, NO prices, NO CTAs anywhere in title/description/tags.
 5. AFFILIATE_PIN: description must end with exactly → Link in bio 🔗
 6. Tags: CamelCase, no hashtag symbol, no spaces, max 5 tags.
-7. All char limits are hard limits — exceed them and downstream pipeline breaks.\
 """
 
 # ── Gemini-only system instruction (tighter, JSON-focused) ────────────────────
@@ -123,7 +122,6 @@ STRICT RULES:
 - VIRAL_PIN: zero product names, zero prices, zero CTAs.
 - AFFILIATE_PIN: description must end with: Link in bio 🔗
 - Tags: CamelCase, no #, exactly 5 tags.
-- Respect all character limits strictly.\
 """
 
 # ── Pin type prompts ───────────────────────────────────────────────────────────
