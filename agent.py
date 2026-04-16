@@ -252,8 +252,9 @@ async def publish_next_pin(niche: str) -> dict:
         # VIRAL_PIN — generate T2I aesthetic image, strip affiliate link
         logger.info(f"🎨 [{target_account}] VIRAL_PIN — generating T2I image, stripping affiliate link.")
         affiliate_link = ""
-        prompt = visual_prompt or f"aesthetic Pinterest pin for {niche}, ultra-realistic, 8k"
-        imgbb_url = await generate_pin_image(visual_prompt=prompt)
+        ratio = cmo.get("ratio", "9:16")
+        prompt = visual_prompt or f"aesthetic Pinterest pin for {niche}, ultra-realistic, 4K ultra HD"
+        imgbb_url = await generate_pin_image(visual_prompt=prompt, ratio=ratio)
         if not imgbb_url:
             # Last-resort fallback: upload raw product image
             logger.warning("⚠️ [Publish] T2I failed — falling back to raw product image (no affiliate link).")
