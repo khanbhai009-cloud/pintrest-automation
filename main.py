@@ -70,33 +70,129 @@ async def mastermind_scheduled_job(trigger: str):
     finally:
         state["mastermind_running"] = False
 
-# ── Random Scheduler ───────────────────────────────────────────────────────────
-def schedule_random_pins():
-    now = datetime.now()
+# ── Smart Daily Scheduler ──────────────────────────────────────────────────────
+#
+# Window : India 6 PM → 6 AM next day  =  EST 7:30 AM → 7:30 PM  (12 hours)
+# Pins   : 10 total per day — 5 per account
+# Gap    : min 25 min between ANY two consecutive pins (no parallel posting)
+# Layout : slots interleaved  →  A1, A2, A1, A2, A1, A2, A1, A2, A1, A2
+# Split  : each account randomly gets 2 VIRAL + 3 AFFILIATE  OR  3 VIRAL + 2 AFFILIATE
+#
+# Trigger string format: "scheduled-account1-VIRAL_PIN"
+#   → CMO reads account + pin_type override from trigger
+#   → Agent Executor posts ONLY the specified account
+#
+# Best USA Pinterest times (EST):
+#   8:00–11:00 AM  (morning browse peak)
+#   2:00–4:00 PM   (afternoon peak)
+#   6:00–7:30 PM   (early evening — end of our window)
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _random_daily_split() -> list:
+    """Return a shuffled list of 5 pin types — randomly 2+3 or 3+2 VIRAL/AFFILIATE."""
+    viral_count = random.choice([2, 3])
+    types = ["VIRAL_PIN"] * viral_count + ["AFFILIATE_PIN"] * (5 - viral_count)
+    random.shuffle(types)
+    return types
+
+
+def schedule_daily_pins():
+    """
+    Generate and register today's 10-pin schedule.
+    Called once at startup and again via daily cron at 7:00 AM EST.
+    """
+    tz  = scheduler.timezone
+    now = datetime.now(tz=tz)
+
+    def _make_dt(d, h, m):
+        """Create a timezone-aware datetime — works with both pytz and zoneinfo."""
+        naive = datetime(d.year, d.month, d.day, h, m, 0)
+        try:
+            return tz.localize(naive)          # pytz
+        except AttributeError:
+            return naive.replace(tzinfo=tz)    # zoneinfo
+
+    # ── Build window for today ─────────────────────────────────────────────────
+    today        = now.date()
+    window_start = _make_dt(today, 7, 30)
+    window_end   = _make_dt(today, 19, 30)
+
+    # If we're already past the window, schedule for tomorrow
+    if now >= window_end:
+        tomorrow     = today + timedelta(days=1)
+        window_start = _make_dt(tomorrow, 7, 30)
+        window_end   = _make_dt(tomorrow, 19, 30)
+
+    WINDOW_MINUTES = 720   # 7:30 AM → 7:30 PM = 12 hours
+    MIN_GAP        = 25    # minimum gap (minutes) between any two consecutive pin slots
+
+    # ── Generate 10 time slots with min gap enforced ───────────────────────────
+    slots = []
+    for _ in range(20_000):
+        if len(slots) == 10:
+            break
+        candidate = random.randint(0, WINDOW_MINUTES - 1)
+        if all(abs(candidate - s) >= MIN_GAP for s in slots):
+            slots.append(candidate)
+    slots.sort()
+
+    # ── Random pin-type split for each account ─────────────────────────────────
+    a1_plan = _random_daily_split()   # e.g. ["VIRAL_PIN", "AFFILIATE_PIN", ...]
+    a2_plan = _random_daily_split()
+
+    # ── Remove old scheduled pin jobs ─────────────────────────────────────────
     for job in scheduler.get_jobs():
-        if job.id.startswith("random_"):
+        if job.id.startswith("pin_"):
             scheduler.remove_job(job.id)
 
-    for i in range(3):
-        rt = now.replace(hour=10, minute=0, second=0, microsecond=0) + timedelta(minutes=random.randint(0, 360))
-        if rt > now:
-            scheduler.add_job(mastermind_scheduled_job, "date", run_date=rt,
-                               id=f"random_a1_{i}", kwargs={"trigger": "scheduled-account1"})
-            logger.info(f"📌 [Acc 1] Slot {i+1}: {rt.strftime('%I:%M %p')} EST")
+    # ── Register jobs — interleaved A1/A2 ──────────────────────────────────────
+    a1_idx = a2_idx = scheduled = 0
 
-    for i in range(3):
-        rt = now.replace(hour=19, minute=0, second=0, microsecond=0) + timedelta(minutes=random.randint(0, 360))
-        if rt > now:
-            scheduler.add_job(mastermind_scheduled_job, "date", run_date=rt,
-                               id=f"random_a2_{i}", kwargs={"trigger": "scheduled-account2"})
-            logger.info(f"📌 [Acc 2] Slot {i+1}: {rt.strftime('%I:%M %p')} EST")
+    for i, offset_min in enumerate(slots):
+        run_time = window_start + timedelta(minutes=offset_min)
+        if run_time <= now:
+            continue   # slot already in the past — skip
+
+        if i % 2 == 0 and a1_idx < 5:         # even slot → Account 1
+            pin_type = a1_plan[a1_idx]
+            scheduler.add_job(
+                mastermind_scheduled_job, "date", run_date=run_time,
+                id=f"pin_a1_{a1_idx + 1}",
+                kwargs={"trigger": f"scheduled-account1-{pin_type}"},
+            )
+            logger.info(f"📌 [Acc1 #{a1_idx+1}] {run_time.strftime('%I:%M %p')} EST → {pin_type}")
+            a1_idx   += 1
+            scheduled += 1
+
+        elif i % 2 == 1 and a2_idx < 5:       # odd slot  → Account 2
+            pin_type = a2_plan[a2_idx]
+            scheduler.add_job(
+                mastermind_scheduled_job, "date", run_date=run_time,
+                id=f"pin_a2_{a2_idx + 1}",
+                kwargs={"trigger": f"scheduled-account2-{pin_type}"},
+            )
+            logger.info(f"📌 [Acc2 #{a2_idx+1}] {run_time.strftime('%I:%M %p')} EST → {pin_type}")
+            a2_idx   += 1
+            scheduled += 1
+
+    logger.info(
+        f"✅ Daily schedule ready — {scheduled}/10 pins registered\n"
+        f"   Acc1 plan ({a1_idx} slots): {a1_plan}\n"
+        f"   Acc2 plan ({a2_idx} slots): {a2_plan}\n"
+        f"   Window: {window_start.strftime('%I:%M %p')} → {window_end.strftime('%I:%M %p')} EST"
+    )
+    # Reset daily counter
+    state["posted_today"] = 0
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    scheduler.add_job(schedule_random_pins, "cron", hour=8, minute=0, id="daily_randomizer")
-    schedule_random_pins()
+    # Daily re-scheduler — fires at 7:00 AM EST (30 min before window opens)
+    scheduler.add_job(schedule_daily_pins, "cron", hour=7, minute=0, id="daily_scheduler")
+    schedule_daily_pins()
     scheduler.start()
-    logger.info("✅ Mastermind Random Scheduler Active (3+3 Pins/day)")
+    logger.info("✅ Smart Scheduler Active — 10 pins/day (5 per account) in EST 7:30 AM–7:30 PM window")
     yield
     scheduler.shutdown()
 

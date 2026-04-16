@@ -1,17 +1,15 @@
+import asyncio
 import httpx
 import logging
 import random
 import os
 from config import RAPIDAPI_KEY
 
-# Agar tumne GROQ_API_KEY config.py me daali hai toh wahan se import kar lena, 
-# warna .env se uthane ke liye os.getenv use kar rahe hain.
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "your_groq_api_key_here")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 logger = logging.getLogger(__name__)
 
-# RapidAPI Endpoints
-SEARCH_URL = "https://real-time-amazon-data.p.rapidapi.com/search"
+SEARCH_URL  = "https://real-time-amazon-data.p.rapidapi.com/search"
 DETAILS_URL = "https://real-time-amazon-data.p.rapidapi.com/product-details"
 
 HEADERS = {
@@ -19,7 +17,6 @@ HEADERS = {
     "x-rapidapi-key":  RAPIDAPI_KEY,
 }
 
-# Niche-Based Keywords
 KEYWORDS_BY_NICHE = {
     "home": [
         "aesthetic room decor", "amazon home finds", "nordic home decor",
@@ -65,119 +62,138 @@ KEYWORDS_BY_NICHE = {
 
 DEFAULT_KEYWORDS = ["tiktok viral finds", "aesthetic must haves", "cool gadgets"]
 
+# ── Rate limiting for Groq Vision API ────────────────────────────────────────
+# Groq vision model free tier: 30 RPM, 7,000 tokens/min
+# Strategy: 5s gap between consecutive calls + exponential backoff on 429
+_VISION_INTER_CALL_DELAY = 5    # seconds between products (safe = 12 calls/min max)
+_VISION_RETRY_DELAYS     = [12, 24, 48]  # seconds to wait on successive 429s
+
+
 async def get_product_photos(asin: str) -> list:
     """ASIN ka use karke product ki saari images fetch karta hai."""
     logger.info(f"🔍 Fetching photo gallery for ASIN: {asin}...")
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            params = {"asin": asin, "country": "US"}
-            r = await client.get(DETAILS_URL, headers=HEADERS, params=params)
+            r = await client.get(DETAILS_URL, headers=HEADERS, params={"asin": asin, "country": "US"})
             r.raise_for_status()
-            
-            data = r.json()
-            # RapidAPI 'product_photos' array return karta hai
-            photos = data.get("data", {}).get("product_photos", [])
-            return photos
+            return r.json().get("data", {}).get("product_photos", [])
     except Exception as e:
         logger.error(f"❌ Failed to get details for {asin}: {e}")
         return []
 
+
 async def get_best_lifestyle_image(image_urls: list) -> str:
-    """Groq Vision LLM ko use karke sabse aesthetic Pinterest-worthy image select karta hai."""
+    """
+    Groq Vision LLM ko use karke sabse aesthetic Pinterest-worthy image select karta hai.
+    Rate limiting: exponential backoff on 429 — retries up to 3 times.
+    """
     if not image_urls:
         return ""
     if len(image_urls) == 1:
         return image_urls[0]
 
     logger.info("👁️ [Vision Agent] Analyzing images for best Pinterest vibe...")
-    
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            content_payload = [
-                {
-                    "type": "text", 
-                    "text": "You are an expert Pinterest aesthetic curator. Review these product images. Select the ONE image that is most 'lifestyle' oriented (e.g., product in a real room setting, aesthetic background, warm lighting). DO NOT pick plain white background images or images with heavy text/dimensions. Output ONLY the exact URL of the best image. No extra words."
-                }
-            ]
-            
-            # API load kam rakhne ke liye max 5 images bhej rahe hain
-            for url in image_urls[:5]: 
-                content_payload.append({
-                    "type": "image_url",
-                    "image_url": {"url": url}
-                })
 
-            payload = {
-                "model": "llama-3.2-11b-vision-preview",
-                "messages": [{"role": "user", "content": content_payload}],
-                "temperature": 0.1, # Low temp for deterministic strict URL output
-                "max_tokens": 100
-            }
-            
-            headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
-            
-            response = await client.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
+    content_payload = [
+        {
+            "type": "text",
+            "text": (
+                "You are an expert Pinterest aesthetic curator. Review these product images. "
+                "Select the ONE image that is most 'lifestyle' oriented (e.g., product in a real "
+                "room setting, aesthetic background, warm lighting). "
+                "DO NOT pick plain white background images or images with heavy text/dimensions. "
+                "Output ONLY the exact URL of the best image. No extra words."
+            )
+        }
+    ]
+    for url in image_urls[:5]:
+        content_payload.append({"type": "image_url", "image_url": {"url": url}})
+
+    payload = {
+        "model": "llama-3.2-11b-vision-preview",
+        "messages": [{"role": "user", "content": content_payload}],
+        "temperature": 0.1,
+        "max_tokens": 100
+    }
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
+
+    for attempt, wait_sec in enumerate([0] + _VISION_RETRY_DELAYS):
+        if wait_sec > 0:
+            logger.warning(f"⏳ [Vision Agent] 429 — sleeping {wait_sec}s before retry {attempt}/{len(_VISION_RETRY_DELAYS)}...")
+            await asyncio.sleep(wait_sec)
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers=headers, json=payload
+                )
+
+            if response.status_code == 429:
+                logger.warning(f"⚠️ [Vision Agent] Groq 429 on attempt {attempt + 1}")
+                continue
+
             response.raise_for_status()
-            
-            best_url = response.json()['choices'][0]['message']['content'].strip()
-            
-            # Verify karte hain ki LLM ne URL hi return kiya hai
+            best_url = response.json()["choices"][0]["message"]["content"].strip()
+
             if best_url.startswith("http"):
                 logger.info("✅ [Vision Agent] Best aesthetic image selected!")
                 return best_url
             else:
-                logger.warning("⚠️ [Vision Agent] LLM didn't return a valid URL. Falling back.")
-                return image_urls[0] 
+                logger.warning("⚠️ [Vision Agent] LLM returned non-URL. Falling back to first image.")
+                return image_urls[0]
 
-    except Exception as e:
-        logger.error(f"❌ [Vision Agent] Failed: {e}")
-        return image_urls[0] # Error aane par fallback to default image
+        except Exception as e:
+            logger.error(f"❌ [Vision Agent] Attempt {attempt + 1} failed: {e}")
+            if attempt == len(_VISION_RETRY_DELAYS):
+                break
+
+    logger.warning("⚠️ [Vision Agent] All retries exhausted — using first image as fallback.")
+    return image_urls[0]
+
 
 async def search_products(keyword: str = "", page: int = 1, max_results: int = 5, niche: str = "") -> list:
-    """Main function jo search, fetch details, aur Vision filter ko combine karta hai."""
+    """
+    Main function: search Amazon → fetch product details → Vision filter for best image.
+    Rate limiting: _VISION_INTER_CALL_DELAY seconds between consecutive Vision API calls.
+    """
     try:
         if not keyword and niche:
             keyword = random.choice(KEYWORDS_BY_NICHE.get(niche, DEFAULT_KEYWORDS))
 
         logger.info(f"🛒 Searching Amazon for: '{keyword}'...")
         async with httpx.AsyncClient(timeout=30) as client:
-            params = {
-                "query": keyword,
-                "page": str(page),
-                "country": "US",
-                "sort_by": "RELEVANCE",
-                "language": "en_US"
-            }
-            r = await client.get(SEARCH_URL, headers=HEADERS, params=params)
-        
+            r = await client.get(SEARCH_URL, headers=HEADERS, params={
+                "query": keyword, "page": str(page),
+                "country": "US", "sort_by": "RELEVANCE", "language": "en_US"
+            })
         r.raise_for_status()
-        data = r.json()
-        raw = data.get("data", {}).get("products", [])
+        raw = r.json().get("data", {}).get("products", [])
 
         if not raw:
-            logger.warning(f"⚠️ No products found in API response for: {keyword}")
+            logger.warning(f"⚠️ No products found for: {keyword}")
             return []
 
         normalized = []
-        # Sirf top 'max_results' (default 5) process karenge taaki credits bachein
-        for item in raw[:max_results]:
+        for idx, item in enumerate(raw[:max_results]):
             asin = item.get("asin")
             if not asin:
                 continue
 
-            title = item.get("product_title", "Amazon Product")
-            price = item.get("product_price", "$0.00")
-            rating = item.get("product_star_rating", 0)
-            reviews = item.get("product_num_ratings", 0)
+            # ── Rate limit guard: wait between Vision calls ────────────────
+            if idx > 0:
+                logger.info(f"⏱️ [Rate Limit] Sleeping {_VISION_INTER_CALL_DELAY}s before next Vision call...")
+                await asyncio.sleep(_VISION_INTER_CALL_DELAY)
+
+            title         = item.get("product_title", "Amazon Product")
+            price         = item.get("product_price", "$0.00")
+            rating        = item.get("product_star_rating", 0)
+            reviews       = item.get("product_num_ratings", 0)
             default_image = item.get("product_photo", "")
-            
-            # 1. Product details se saari images fetch karo
+
             photo_gallery = await get_product_photos(asin)
-            
             if not photo_gallery:
                 photo_gallery = [default_image] if default_image else []
-                
-            # 2. Vision Agent se best image filter karwao
+
             best_aesthetic_image = await get_best_lifestyle_image(photo_gallery)
 
             normalized.append({
@@ -186,13 +202,13 @@ async def search_products(keyword: str = "", page: int = 1, max_results: int = 5
                 "sale_price":   str(price),
                 "orders":       str(reviews),
                 "rating":       rating,
-                "image_url":    best_aesthetic_image, # 🚀 Vision Filtered Image!
+                "image_url":    best_aesthetic_image,
                 "product_url":  f"https://www.amazon.com/dp/{asin}",
                 "keyword":      keyword,
                 "niche":        niche,
             })
 
-        logger.info(f"✅ Mastermind Cycle Complete! '{keyword}': {len(normalized)} highly-aesthetic items ready.")
+        logger.info(f"✅ Fetch complete! '{keyword}': {len(normalized)} aesthetic items ready.")
         return normalized
 
     except Exception as e:

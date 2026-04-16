@@ -165,9 +165,19 @@ def _call_gemini_sync(prompt: str) -> str:
     return response.text
 
 
-def _call_gemini_for_account(account_key: str, metrics: dict) -> dict:
-    pin_type = _choose_pin_type()
-    profile = _ACCOUNT_PROFILES[account_key]
+def _call_gemini_for_account(account_key: str, metrics: dict, pin_type_override: str = None) -> dict:
+    """
+    Generate CMO strategy for one account.
+    pin_type_override: if "VIRAL_PIN" or "AFFILIATE_PIN", skips the 70/30 random routing.
+    """
+    if pin_type_override in ("VIRAL_PIN", "AFFILIATE_PIN"):
+        pin_type = pin_type_override
+        logger.info(f"   [{account_key}] Scheduler override → {pin_type}")
+    else:
+        pin_type = _choose_pin_type()
+        logger.info(f"   [{account_key}] 70/30 routing → {pin_type}")
+
+    profile     = _ACCOUNT_PROFILES[account_key]
     metrics_str = json.dumps(metrics, indent=2)
 
     if pin_type == "VIRAL_PIN":
@@ -175,9 +185,7 @@ def _call_gemini_for_account(account_key: str, metrics: dict) -> dict:
     else:
         prompt = _AFFILIATE_PIN_PROMPT.format(account_profile=profile, metrics=metrics_str)
 
-    logger.info(f"   [{account_key}] 70/30 routing → {pin_type}")
-
-    raw = _call_gemini_sync(prompt)
+    raw    = _call_gemini_sync(prompt)
     result = _extract_json(raw)
 
     required = ("pin_type", "strategy", "vibe", "title", "description", "tags", "visual_prompt")
@@ -191,39 +199,72 @@ def _call_gemini_for_account(account_key: str, metrics: dict) -> dict:
 async def node_cmo_mastermind(state: MastermindState) -> dict:
     """
     Node 2 — CMO Mastermind.
-    Independently routes each account (70% VIRAL_PIN / 30% AFFILIATE_PIN),
-    calls Gemini with the matching prompt, returns per-account strategy dicts.
+    Supports single-account triggers ("account1" or "account2" in cycle_trigger).
+    Supports pin_type override embedded in trigger string (e.g., "scheduled-account1-VIRAL_PIN").
     On complete failure → hardcoded fallback keeps pipeline alive.
     """
-    logger.info("🧠 [Node 2 — CMO Mastermind] Gemini analysing both accounts...")
+    trigger = state.get("cycle_trigger", "")
+
+    # ── Determine which accounts to process ───────────────────────────────────
+    only_a1 = "account1" in trigger and "account2" not in trigger
+    only_a2 = "account2" in trigger and "account1" not in trigger
+    run_a1  = not only_a2
+    run_a2  = not only_a1
+
+    # ── Extract optional pin_type override from trigger string ─────────────────
+    a1_override = None
+    a2_override = None
+    if "VIRAL_PIN" in trigger:
+        if only_a1:
+            a1_override = "VIRAL_PIN"
+        elif only_a2:
+            a2_override = "VIRAL_PIN"
+    elif "AFFILIATE_PIN" in trigger:
+        if only_a1:
+            a1_override = "AFFILIATE_PIN"
+        elif only_a2:
+            a2_override = "AFFILIATE_PIN"
+
+    accounts_label = "A1 only" if only_a1 else ("A2 only" if only_a2 else "Both")
+    logger.info(f"🧠 [Node 2 — CMO Mastermind] Gemini analysing {accounts_label} | trigger={trigger}")
 
     a1_metrics = _compute_metrics(state["a1_raw_analytics"])
     a2_metrics = _compute_metrics(state["a2_raw_analytics"])
 
-    logger.info(f"   A1 profile: {a1_metrics['profile']}")
-    logger.info(f"   A2 profile: {a2_metrics['profile']}")
+    fallback = False
 
-    try:
-        a1_strategy = await asyncio.to_thread(_call_gemini_for_account, "account_1", a1_metrics)
-        logger.info(f"✅ [Node 2] A1 → {a1_strategy['pin_type']} / {a1_strategy['strategy']}")
-    except Exception as e:
-        logger.error(f"❌ [Node 2] Gemini failed for A1: {e}. Using fallback.")
-        a1_strategy = HARDCODED_FALLBACK["account_1"]
+    # ── Account 1 ─────────────────────────────────────────────────────────────
+    if run_a1:
+        logger.info(f"   A1 profile: {a1_metrics['profile']}")
+        try:
+            a1_strategy = await asyncio.to_thread(
+                _call_gemini_for_account, "account_1", a1_metrics, a1_override
+            )
+            logger.info(f"✅ [Node 2] A1 → {a1_strategy['pin_type']} / {a1_strategy['strategy']}")
+        except Exception as e:
+            logger.error(f"❌ [Node 2] Gemini failed for A1: {e}. Using fallback.")
+            a1_strategy = HARDCODED_FALLBACK["account_1"]
+            fallback = True
+    else:
+        a1_strategy = {}
 
-    try:
-        a2_strategy = await asyncio.to_thread(_call_gemini_for_account, "account_2", a2_metrics)
-        logger.info(f"✅ [Node 2] A2 → {a2_strategy['pin_type']} / {a2_strategy['strategy']}")
-    except Exception as e:
-        logger.error(f"❌ [Node 2] Gemini failed for A2: {e}. Using fallback.")
-        a2_strategy = HARDCODED_FALLBACK["account_2"]
-
-    fallback = (
-        a1_strategy is HARDCODED_FALLBACK["account_1"]
-        or a2_strategy is HARDCODED_FALLBACK["account_2"]
-    )
+    # ── Account 2 ─────────────────────────────────────────────────────────────
+    if run_a2:
+        logger.info(f"   A2 profile: {a2_metrics['profile']}")
+        try:
+            a2_strategy = await asyncio.to_thread(
+                _call_gemini_for_account, "account_2", a2_metrics, a2_override
+            )
+            logger.info(f"✅ [Node 2] A2 → {a2_strategy['pin_type']} / {a2_strategy['strategy']}")
+        except Exception as e:
+            logger.error(f"❌ [Node 2] Gemini failed for A2: {e}. Using fallback.")
+            a2_strategy = HARDCODED_FALLBACK["account_2"]
+            fallback = True
+    else:
+        a2_strategy = {}
 
     return {
-        "a1_cmo_strategy": a1_strategy,
-        "a2_cmo_strategy": a2_strategy,
+        "a1_cmo_strategy":   a1_strategy,
+        "a2_cmo_strategy":   a2_strategy,
         "fallback_triggered": fallback,
     }

@@ -24,29 +24,43 @@ logger = logging.getLogger(__name__)
 
 async def node_agent_executor(state: MastermindState) -> dict:
     """
-    Node 3 (NEW) — Agent Executor.
-    Takes the CMO strategy from state and passes it directly to agent.py.
-    Runs ONCE per account (a1 first, then a2) using the full run_agent() pipeline.
-    Node 3 (copywriters) and Node 4 (execution_engine) are completely bypassed.
+    Node 3 — Agent Executor.
+    Checks cycle_trigger to decide which account(s) to run:
+      - "account1" in trigger (no "account2") → only Account 1
+      - "account2" in trigger (no "account1") → only Account 2
+      - otherwise (both/manual/scheduled)     → both accounts sequentially
     """
-    logger.info("🤖 [Node 3 — Agent Executor] Handing strategy to agent.py...")
-
+    trigger     = state.get("cycle_trigger", "")
     a1_strategy = state.get("a1_cmo_strategy", {})
     a2_strategy = state.get("a2_cmo_strategy", {})
 
-    # ── Account 1 ──────────────────────────────────────────────────────────────
-    logger.info(f"▶️  [Agent Executor] Running Account 1 | Strategy: {a1_strategy.get('strategy')}")
-    a1_result = await run_agent(
-        trigger="account1",
-        cmo_strategy=a1_strategy,  # ← injected directly into agent
+    only_a1 = "account1" in trigger and "account2" not in trigger
+    only_a2 = "account2" in trigger and "account1" not in trigger
+    run_a1  = not only_a2
+    run_a2  = not only_a1
+
+    logger.info(
+        f"🤖 [Node 3 — Agent Executor] trigger={trigger} | "
+        f"run_a1={run_a1} run_a2={run_a2}"
     )
 
+    SKIPPED = {"status": "skipped", "summary": "Skipped — not in this trigger"}
+
+    # ── Account 1 ──────────────────────────────────────────────────────────────
+    if run_a1 and a1_strategy:
+        logger.info(f"▶️  [Agent Executor] Running Account 1 | Strategy: {a1_strategy.get('strategy')}")
+        a1_result = await run_agent(trigger="account1", cmo_strategy=a1_strategy)
+    else:
+        logger.info("⏭️  [Agent Executor] Account 1 — SKIPPED")
+        a1_result = SKIPPED
+
     # ── Account 2 ──────────────────────────────────────────────────────────────
-    logger.info(f"▶️  [Agent Executor] Running Account 2 | Strategy: {a2_strategy.get('strategy')}")
-    a2_result = await run_agent(
-        trigger="account2",
-        cmo_strategy=a2_strategy,  # ← injected directly into agent
-    )
+    if run_a2 and a2_strategy:
+        logger.info(f"▶️  [Agent Executor] Running Account 2 | Strategy: {a2_strategy.get('strategy')}")
+        a2_result = await run_agent(trigger="account2", cmo_strategy=a2_strategy)
+    else:
+        logger.info("⏭️  [Agent Executor] Account 2 — SKIPPED")
+        a2_result = SKIPPED
 
     logger.info(f"✅ [Agent Executor] A1: {a1_result.get('status')} | A2: {a2_result.get('status')}")
 
