@@ -1,12 +1,15 @@
 """
 mastermind/graph.py — LangGraph Mastermind CEO Pipeline
-Two-node directed graph — CMO decides, agent.py executes:
+Three-node directed graph — data → CMO → execute:
 
   [data_intelligence] → [cmo_mastermind] → [agent_executor] → END
 
-Node 3 (fast_copywriters) and Node 4 (execution_engine) are REMOVED.
+CMO engine : Cerebras qwen-3-235b-a22b-instruct-2507
+Exec engine: Groq llama-3.3-70b-versatile (Cerebras fallback)
+
 The CMO strategy is passed directly to agent.py (run_agent), which has
-all the tools to execute the full pipeline end-to-end.
+all the tools to execute the full pipeline end-to-end. Node 3 (fast_copywriters)
+and Node 4 (execution_engine) are replaced by agent_executor.
 """
 import logging
 

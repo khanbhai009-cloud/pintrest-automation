@@ -1,9 +1,15 @@
 """
 mastermind/node_cmo.py — Node 2: CMO Mastermind (Cerebras)
-Determines pin type (70% VIRAL_PIN / 30% AFFILIATE_PIN) per account, then
-calls Cerebras with the appropriate prompt to generate pin-ready content JSON.
 
-Model: qwen-3-235b-a22b-instruct-2507 (via Cerebras OpenAI-compatible API)
+Text model  : Cerebras qwen-3-235b-a22b-instruct-2507 (OpenAI-compatible SDK)
+Image model : Gemini gemini-2.5-flash-preview-image-generation (primary)
+              OpenRouter black-forest-labs/flux-1.1-pro       (fallback 1)
+              Pollinations.ai                                   (fallback 2)
+
+Pin routing : 70% VIRAL_PIN / 30% AFFILIATE_PIN
+Scheduler   : 10 pins/day — 5 per account — EST 7:30 AM → 7:30 PM
+Trigger fmt : "scheduled-account1-VIRAL_PIN" or "scheduled-account2-AFFILIATE_PIN"
+
 Rate-limit handling: tenacity exponential backoff 12s → 24s → 48s (3 attempts).
 On total failure: hardcoded fallback keeps pipeline alive.
 """
@@ -50,52 +56,132 @@ HARDCODED_FALLBACK: dict = {
     },
 }
 
+# ── System context injected into every prompt ────────────────────────────────
+_SYSTEM_CONTEXT = """
+SYSTEM CONTEXT (read carefully before generating):
+
+You are the CMO AI of PINTERESTO — a fully autonomous Pinterest affiliate marketing system.
+
+ARCHITECTURE:
+  • This prompt is processed by: Cerebras qwen-3-235b-a22b-instruct-2507
+  • Image generation (for VIRAL_PIN visual_prompt):
+      Layer 1 → Gemini gemini-2.5-flash-preview-image-generation  (primary, 9:16 portrait)
+      Layer 2 → OpenRouter black-forest-labs/flux-1.1-pro          (fallback 1)
+      Layer 3 → Pollinations.ai                                     (fallback 2, free)
+      Each layer: 2 attempts max, 3s delay on failure, 180s timeout
+  • Execution agent: Groq llama-3.3-70b-versatile (Cerebras fallback)
+  • Products database: Google Sheets "Approved Deals"
+  • Post delivery: Make.com webhooks → Pinterest API
+  • Image hosting: ImgBB (all images hosted here before posting)
+
+SCHEDULER:
+  • 10 pins/day total — 5 per account
+  • Window: India 6 PM – 6 AM  =  USA EST 7:30 AM – 7:30 PM
+  • Interleaved: Account1, Account2, Account1, Account2... (min 25-min gap between any pins)
+  • Split: randomly 2 VIRAL + 3 AFFILIATE or 3 VIRAL + 2 AFFILIATE per account each day
+  • Trigger format: "scheduled-account1-VIRAL_PIN" or "scheduled-account2-AFFILIATE_PIN"
+
+PIN TYPE ROUTING (70/30):
+  VIRAL_PIN    (70%) → T2I aesthetic image generated (your visual_prompt feeds Gemini/FLUX/Pollinations)
+                       Affiliate link STRIPPED. Goal: impressions, saves, followers, reach.
+  AFFILIATE_PIN (30%) → Raw product photo used directly (no AI image generated)
+                        visual_prompt field must be "NONE"
+                        Affiliate link KEPT. Goal: outbound clicks, conversions, revenue.
+
+PINTEREST ALGORITHM KNOWLEDGE (use this to make smarter decisions):
+  • Pinterest rewards: fresh content, keyword-rich titles/descriptions, tall 9:16 images
+  • Saves (repins) are the #1 signal for organic reach boost
+  • Outbound clicks signal conversion intent — Pinterest promotes boards with high CTR
+  • Best performing content: aspirational lifestyle, "before/after", "how to", product reveals
+  • Tags should be a mix of: 2 broad niche tags + 2 trending aesthetic tags + 1 brand/seasonal tag
+  • Title should have primary keyword in first 20 chars for SEO
+  • Description should feel human and organic, not robotic
+"""
+
 # ── Prompt templates ──────────────────────────────────────────────────────────
-_VIRAL_PIN_PROMPT = """You are the CMO of a Pinterest empire. A data analysis shows this account needs VIRAL aesthetic content to grow reach.
+_VIRAL_PIN_PROMPT = """{system_context}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CURRENT TASK: Generate a VIRAL_PIN strategy
 
 ACCOUNT PROFILE:
 {account_profile}
 
-ANALYTICS DATA:
+ANALYTICS DATA (last 30 days):
 {metrics}
 
-Your task: Generate a VIRAL_PIN — pure aesthetic, no sales pitch, no affiliate links. Goal is reach and saves.
+DECISION: Analytics show this account needs VIRAL reach content right now.
+Your mission: Create a pin that gets MAXIMUM saves and impressions.
+Pure aesthetic content — NO product promotion, NO affiliate links, NO CTA.
 
-OUTPUT ONLY raw JSON (no markdown, no explanation):
+VISUAL PROMPT RULES (critical — this is fed directly to Gemini image AI):
+  • Format: comma-separated descriptive keywords, no sentences
+  • Style: ultra-realistic, cinematic, 9:16 portrait ratio
+  • Include: lighting style, color palette, mood, specific objects/setting
+  • Length: 100–200 characters max
+  • Example: "cozy kitchen flatlay, marble countertop, golden hour lighting, warm tones, ASMR aesthetic, hyperrealistic, 8k"
+
+OUTPUT ONLY valid raw JSON — no markdown fences, no explanation, no extra text:
 {{
   "pin_type": "VIRAL_PIN",
   "strategy": "Visual Pivot",
-  "vibe": "short punchy aesthetic command under 120 chars",
-  "title": "trendy SEO title under 100 chars, evoke aspiration and curiosity",
-  "description": "engaging aesthetic description under 400 chars, NO sales pitch, NO CTA, NO product mention — pure lifestyle/inspiration",
-  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
-  "visual_prompt": "highly detailed T2I prompt under 200 chars, comma-separated keywords, ultra-realistic Pinterest portrait style"
+  "vibe": "punchy 1-line aesthetic direction under 100 chars — e.g. 'Warm luxe kitchen that makes you want to cook at midnight'",
+  "title": "SEO-optimized title under 100 chars — primary keyword first, aspirational tone, curiosity hook",
+  "description": "lifestyle description under 400 chars — pure inspiration, NO product names, NO CTAs, NO prices, NO links — make it feel like a human wrote it",
+  "tags": ["BroadNicheTag", "TrendingAestheticTag", "AspirationalTag", "SeasonalOrMoodTag", "NicheSpecificTag"],
+  "visual_prompt": "comma-separated T2I keywords under 200 chars, ultra-realistic, 9:16 Pinterest portrait"
 }}"""
 
-_AFFILIATE_PIN_PROMPT = """You are the CMO of a Pinterest empire. Analytics show this account is ready to convert — strike with an affiliate product pin.
+_AFFILIATE_PIN_PROMPT = """{system_context}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CURRENT TASK: Generate an AFFILIATE_PIN strategy
 
 ACCOUNT PROFILE:
 {account_profile}
 
-ANALYTICS DATA:
+ANALYTICS DATA (last 30 days):
 {metrics}
 
-Your task: Generate an AFFILIATE_PIN — authentic product-focused copy with a strong CTA. No AI image will be generated (raw product photo used instead).
+DECISION: Analytics show this account is conversion-ready. Strike with an affiliate product pin.
+Your mission: Create authentic copy that drives outbound clicks and purchases.
+Raw product photo will be used directly — NO AI image generated (visual_prompt must be "NONE").
 
-OUTPUT ONLY raw JSON (no markdown, no explanation):
+AFFILIATE COPY RULES:
+  • Title: Lead with the biggest benefit or price hook — make them NEED to click
+  • Description: Sound like a genuine recommendation from a friend, not an ad
+  • Include 1-2 specific product benefits (not generic)
+  • End description with a soft CTA: "Link in bio 🔗" or "Shop via link in bio ✨"
+  • Tags: Mix product-specific + buyer-intent tags (people searching to buy, not just browse)
+
+OUTPUT ONLY valid raw JSON — no markdown fences, no explanation, no extra text:
 {{
   "pin_type": "AFFILIATE_PIN",
   "strategy": "Aggressive Affiliate Strike",
-  "vibe": "product-focused authentic tone under 120 chars",
-  "title": "click-optimized title under 100 chars, lead with the product benefit or price hook",
-  "description": "authentic product description under 400 chars, include 1-2 benefits, end with strong CTA like 'Link in bio' or 'Shop via link in bio'",
-  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
+  "vibe": "authentic product recommendation tone under 100 chars — e.g. 'The gadget that actually changed my morning routine'",
+  "title": "click-optimized title under 100 chars — lead with product benefit or price hook, create urgency",
+  "description": "authentic product copy under 400 chars — 1-2 specific benefits, sounds human and genuine, ends with soft CTA like 'Link in bio 🔗'",
+  "tags": ["ProductCategoryTag", "BuyerIntentTag", "NicheTag", "BenefitTag", "TrendingProductTag"],
   "visual_prompt": "NONE"
 }}"""
 
 _ACCOUNT_PROFILES = {
-    "account_1": "Account 1 — niches: home, kitchen, cozy, gadgets, organize. Vibe: Satisfying ASMR / Luxury warm aesthetic.",
-    "account_2": "Account 2 — niches: tech, budget, phone, smarthome, wfh. Vibe: Apple-style Liquid Glassmorphism, premium precision.",
+    "account_1": (
+        "Account 1 — HomeDecor & Lifestyle\n"
+        "  Niches  : home, kitchen, cozy, gadgets, organize\n"
+        "  Boards  : Home Decor (ID: 909445787192886518), Kitchen (ID: 909445787192891736), "
+        "Cozy (ID: 909445787192891741), Gadgets (ID: 909445787192891742), Organize (ID: 909445787192891737)\n"
+        "  Aesthetic: Satisfying ASMR / Luxury warm — marble, gold tones, flatlay, warm lighting\n"
+        "  Audience : Homemakers, interior design enthusiasts, 25-45 female-skewed USA/UK\n"
+        "  Best content: ASMR organization clips, cozy kitchen setups, before/after home transforms"
+    ),
+    "account_2": (
+        "Account 2 — Tech & WFH\n"
+        "  Niches  : tech, budget, phone, smarthome, wfh\n"
+        "  Boards  : Tech (ID: 1093952634426985800), Budget Finds (ID: 1093952634426985794), "
+        "Phone (ID: 1093952634426985799), SmartHome (ID: 1093952634426985795), WFH (ID: 1093952634426985796)\n"
+        "  Aesthetic: Apple-style Liquid Glassmorphism — frosted glass, minimal, blue-purple gradients\n"
+        "  Audience : Tech enthusiasts, remote workers, gadget buyers, 20-35 male-skewed, USA/India\n"
+        "  Best content: Desk setup reveals, budget tech finds under $50, smarthome automations"
+    ),
 }
 
 
@@ -170,8 +256,8 @@ def _call_cerebras_sync(prompt: str) -> str:
                 "content": str(prompt),
             },
         ],
-        temperature=0.3,
-        max_tokens=600,
+        temperature=0.4,
+        max_tokens=900,
     )
     return response.choices[0].message.content
 
@@ -192,9 +278,17 @@ def _call_cerebras_for_account(account_key: str, metrics: dict, pin_type_overrid
     metrics_str = json.dumps(metrics, indent=2)
 
     if pin_type == "VIRAL_PIN":
-        prompt = _VIRAL_PIN_PROMPT.format(account_profile=profile, metrics=metrics_str)
+        prompt = _VIRAL_PIN_PROMPT.format(
+            system_context=_SYSTEM_CONTEXT,
+            account_profile=profile,
+            metrics=metrics_str,
+        )
     else:
-        prompt = _AFFILIATE_PIN_PROMPT.format(account_profile=profile, metrics=metrics_str)
+        prompt = _AFFILIATE_PIN_PROMPT.format(
+            system_context=_SYSTEM_CONTEXT,
+            account_profile=profile,
+            metrics=metrics_str,
+        )
 
     raw    = _call_cerebras_sync(prompt)
     result = _extract_json(raw)
