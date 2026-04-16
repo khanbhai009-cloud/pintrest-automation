@@ -170,7 +170,7 @@ _ACCOUNT_PROFILES = {
         "  Boards  : Home Decor (ID: 909445787192886518), Kitchen (ID: 909445787192891736), "
         "Cozy (ID: 909445787192891741), Gadgets (ID: 909445787192891742), Organize (ID: 909445787192891737)\n"
         "  Aesthetic: Satisfying ASMR / Luxury warm — marble, gold tones, flatlay, warm lighting\n"
-        "  Audience : Homemakers, interior design enthusiasts, 25-45 female-skewed USA/UK\n"
+        "  Audience : Homemakers, interior design enthusiasts, 18-45 female-skewed USA/UK\n"
         "  Best content: ASMR organization clips, cozy kitchen setups, before/after home transforms"
     ),
     "account_2": (
@@ -179,7 +179,7 @@ _ACCOUNT_PROFILES = {
         "  Boards  : Tech (ID: 1093952634426985800), Budget Finds (ID: 1093952634426985794), "
         "Phone (ID: 1093952634426985799), SmartHome (ID: 1093952634426985795), WFH (ID: 1093952634426985796)\n"
         "  Aesthetic: Apple-style Liquid Glassmorphism — frosted glass, minimal, blue-purple gradients\n"
-        "  Audience : Tech enthusiasts, remote workers, gadget buyers, 20-35 male-skewed, USA/India\n"
+        "  Audience : Tech enthusiasts, remote workers, gadget buyers, 18-35 male-skewed, USA/India\n"
         "  Best content: Desk setup reveals, budget tech finds under $50, smarthome automations"
     ),
 }
