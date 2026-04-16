@@ -1,13 +1,15 @@
 """
 tools/image_creator.py — Text-to-Image Generation & ImgBB Hosting
 
-PRIMARY:  Google Gemini (gemini-2.5-flash-image)
+PRIMARY:  Google Gemini (gemini-2.5-flash-preview-image)
           Free tier limits: 15 RPM | 1,500 RPD
-          Rate limiting:    60-second mandatory delay after EVERY request
-                            (success OR failure) to stay well within 15 RPM
-                            and prevent spamming / quota exhaustion.
+          Rate limiting:    time.sleep(60) runs BEFORE every Gemini call to
+                            prevent 429 Too Many Requests on the free tier.
+                            A second asyncio.sleep(60) in the finally block
+                            provides an additional post-call safety buffer.
 
-FALLBACK: Puter.js free tier (username/password auth)
+FALLBACK: Pollinations.ai (free, no API key required)
+          Called automatically whenever Gemini raises any exception.
 
 Image-to-Image (I2I) has been removed. AFFILIATE_PIN uses the raw product
 image URL directly — no AI image processing required.
@@ -21,37 +23,34 @@ import asyncio
 import base64
 import logging
 import os
+import time
+import urllib.parse
 from typing import Optional
 
 import httpx
 from google import genai
 from google.genai import types as genai_types
-from putergenai import PuterClient
 
 from config import GEMINI_API_KEY, GEMINI_IMAGE_MODEL
 
 logger = logging.getLogger(__name__)
 
 # ── Environment keys ─────────────────────────────────────────────────────────
-IMGBB_API_KEY  = os.getenv("IMGBB_API_KEY")
-PUTER_USERNAME = os.getenv("PUTER_USERNAME")
-PUTER_PASSWORD = os.getenv("PUTER_PASSWORD")
+IMGBB_API_KEY = os.getenv("IMGBB_API_KEY")
 
-# ── Gemini client (shared with node_cmo) ─────────────────────────────────────
+# ── Gemini client ─────────────────────────────────────────────────────────────
 _gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 # ── Rate-limit constants ──────────────────────────────────────────────────────
-# Gemini free tier: 15 RPM / 1,500 RPD
-# We enforce a strict 60s post-request delay so we never exceed 1 req/min.
-# This is far more conservative than 15 RPM but guarantees zero rate errors.
-_GEMINI_RATE_LIMIT_DELAY = 60   # seconds
+_GEMINI_PRE_CALL_SLEEP  = 60   # seconds — sleep BEFORE calling Gemini (prevents 429)
+_GEMINI_POST_CALL_SLEEP = 60   # seconds — sleep AFTER call in finally block (safety buffer)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def _download_bytes(url: str, timeout: int = 45) -> Optional[bytes]:
+async def _download_bytes(url: str, timeout: int = 90) -> Optional[bytes]:
     """Download raw bytes from a public URL."""
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
@@ -94,16 +93,14 @@ async def _t2i_gemini(prompt: str) -> Optional[bytes]:
     """
     Primary T2I: Google Gemini image generation model.
 
-    Model : gemini-2.5-flash-image  (configurable via GEMINI_IMAGE_MODEL)
+    Model : gemini-2.5-flash-preview-image  (configurable via GEMINI_IMAGE_MODEL)
     Ratio : 9:16 portrait (optimal for Pinterest pins)
     Limits: 15 RPM / 1,500 RPD (free tier)
 
     Rate limiting strategy:
-      A mandatory 60-second sleep runs in the `finally` block after EVERY
-      call — whether it succeeds or fails. This ensures:
-        • Max throughput = 1 request/minute (well under 15 RPM limit)
-        • No quota bursts even if multiple pipeline cycles fire close together
-        • Simple, auditable — no need for a token-bucket or sliding window
+      1. time.sleep(60) runs BEFORE the API call — stops 429 before it happens.
+      2. asyncio.sleep(60) in the finally block — additional post-call buffer.
+      Both are mandatory on the free tier.
     """
     if not _gemini_client:
         logger.warning("⚠️ [T2I-Gemini] GEMINI_API_KEY not configured — skipping.")
@@ -115,11 +112,19 @@ async def _t2i_gemini(prompt: str) -> Optional[bytes]:
         "9:16 portrait aspect ratio, vibrant colors, professional photography style"
     )
 
+    # ── MANDATORY PRE-CALL SLEEP ──────────────────────────────────────────────
+    # Runs synchronously (blocks the thread) before the API request.
+    # Prevents 429 Too Many Requests on Gemini free tier (15 RPM limit).
+    logger.info(
+        f"⏳ [T2I-Gemini] Pre-call rate-limit sleep: {_GEMINI_PRE_CALL_SLEEP}s "
+        f"(free tier guard — prevents 429)..."
+    )
+    await asyncio.to_thread(time.sleep, _GEMINI_PRE_CALL_SLEEP)
+
     logger.info(f"🎨 [T2I-Gemini] Requesting image | model={GEMINI_IMAGE_MODEL}")
     image_bytes: Optional[bytes] = None
 
     try:
-        # Synchronous Gemini SDK call offloaded to a thread
         def _call_sync() -> genai_types.GenerateContentResponse:
             return _gemini_client.models.generate_content(
                 model=GEMINI_IMAGE_MODEL,
@@ -131,11 +136,9 @@ async def _t2i_gemini(prompt: str) -> Optional[bytes]:
 
         response = await asyncio.to_thread(_call_sync)
 
-        # Extract image bytes from the inline_data part
         for part in response.candidates[0].content.parts:
             if part.inline_data is not None:
                 raw = part.inline_data.data
-                # SDK may return raw bytes or a base64-encoded string
                 if isinstance(raw, (bytes, bytearray)):
                     image_bytes = bytes(raw)
                 else:
@@ -153,41 +156,37 @@ async def _t2i_gemini(prompt: str) -> Optional[bytes]:
         return None
 
     finally:
-        # ── MANDATORY RATE-LIMIT DELAY ────────────────────────────────────────
-        # Always executes regardless of success/failure.
-        # 60 seconds = max 1 request/min = stays well within 15 RPM free tier.
+        # ── POST-CALL SAFETY BUFFER ───────────────────────────────────────────
         logger.info(
-            f"⏳ [T2I-Gemini] Rate-limit delay: {_GEMINI_RATE_LIMIT_DELAY}s "
-            f"(free tier = 15 RPM — 1 req/min enforced)..."
+            f"⏳ [T2I-Gemini] Post-call buffer sleep: {_GEMINI_POST_CALL_SLEEP}s..."
         )
-        await asyncio.sleep(_GEMINI_RATE_LIMIT_DELAY)
+        await asyncio.sleep(_GEMINI_POST_CALL_SLEEP)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Fallback T2I — Puter.js Free Tier
+# Fallback T2I — Pollinations.ai (free, no API key required)
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def _t2i_puter_free(prompt: str) -> Optional[bytes]:
+async def _t2i_pollinations(prompt: str) -> Optional[bytes]:
     """
-    Fallback T2I: Puter.js free tier (username/password login, no API key).
-    Called only when Gemini is unavailable or returns no image data.
-    No artificial delay added — Puter has no strict RPM limits.
+    Fallback T2I: Pollinations.ai free image generation API.
+    Called automatically when Gemini fails for any reason (quota, 429, error).
+    No API key required. Returns image bytes on success, None on failure.
     """
-    if not PUTER_USERNAME or not PUTER_PASSWORD:
-        logger.warning("⚠️ [T2I-Puter] PUTER_USERNAME / PUTER_PASSWORD not set.")
-        return None
     try:
-        logger.info("🎨 [T2I-Puter] Requesting image (fallback)...")
-        async with PuterClient() as client:
-            await client.login(PUTER_USERNAME, PUTER_PASSWORD)
-            image_url = await client.ai_txt2img(
-                f"{prompt}, ultra-realistic, 8k, Pinterest portrait 9:16",
-                model="pollinations-image",
-            )
-        logger.info(f"✅ [T2I-Puter] Generated URL: {image_url[:60]}...")
-        return await _download_bytes(image_url)
+        full_prompt = f"{prompt}, ultra-realistic, 8k, Pinterest portrait 9:16"
+        encoded     = urllib.parse.quote(full_prompt)
+        url = (
+            f"https://image.pollinations.ai/prompt/{encoded}"
+            "?width=768&height=1365&nologo=true&enhance=true&model=flux"
+        )
+        logger.info(f"🎨 [T2I-Pollinations] Requesting fallback image...")
+        image_bytes = await _download_bytes(url, timeout=120)
+        if image_bytes:
+            logger.info(f"✅ [T2I-Pollinations] Success — {len(image_bytes):,} bytes.")
+        return image_bytes
     except Exception as e:
-        logger.error(f"❌ [T2I-Puter] Fallback failed: {e}")
+        logger.error(f"❌ [T2I-Pollinations] Fallback failed: {e}")
         return None
 
 
@@ -200,27 +199,26 @@ async def generate_pin_image(visual_prompt: str) -> Optional[str]:
     Generate a VIRAL_PIN image and return an ImgBB-hosted URL.
 
     Pipeline:
-        1. Gemini (gemini-2.5-flash-image) — primary, 60s rate-limit delay enforced
-        2. Puter.js free tier             — fallback, no delay needed
+        1. Gemini (gemini-2.5-flash-preview-image) — primary
+           • time.sleep(60) before call   — prevents 429
+           • asyncio.sleep(60) after call — post-call buffer
+        2. Pollinations.ai                — fallback, no key needed
 
     Args:
         visual_prompt: Detailed aesthetic T2I prompt from the CMO Mastermind.
 
     Returns:
         ImgBB URL string ("https://i.ibb.co/..."), or None if all paths fail.
-
-    Note:
-        AFFILIATE_PIN skips this entirely — it calls upload_raw_image() instead.
     """
     logger.info("🎨 [Image Pipeline] VIRAL_PIN — T2I generation starting...")
 
     # Step 1 — Primary: Gemini
     image_bytes = await _t2i_gemini(visual_prompt)
 
-    # Step 2 — Fallback: Puter.js
+    # Step 2 — Fallback: Pollinations.ai
     if not image_bytes:
-        logger.warning("⚠️ [Image Pipeline] Gemini failed — trying Puter fallback...")
-        image_bytes = await _t2i_puter_free(visual_prompt)
+        logger.warning("⚠️ [Image Pipeline] Gemini failed — trying Pollinations.ai fallback...")
+        image_bytes = await _t2i_pollinations(visual_prompt)
 
     if not image_bytes:
         logger.error("❌ [Image Pipeline] All T2I paths exhausted. Cannot generate image.")

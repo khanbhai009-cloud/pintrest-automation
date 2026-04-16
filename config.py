@@ -6,6 +6,7 @@ GROQ_API_KEY          = os.getenv("GROQ_API_KEY")
 CEREBRAS_API_KEY      = os.getenv("CEREBRAS_API_KEY")
 GROQ_MODEL            = "llama-3.3-70b-versatile"
 CEREBRAS_MODEL        = "llama3.3-70b"
+CEREBRAS_CMO_MODEL    = "qwen-3-235b-a22b-instruct-2507"
 GOOGLE_CREDS_JSON     = os.getenv("GOOGLE_CREDS_JSON")
 SPREADSHEET_ID        = os.getenv("SPREADSHEET_ID")
 SHEET_NAME            = "Approved Deals"
@@ -26,7 +27,7 @@ ANALYTICS_SHEET_ACC2    = "Analytics_logs2"  # Account 2 — Tech
 # when it becomes GA.  Tenacity fallback protects the pipeline if unavailable.
 GEMINI_IMAGE_MODEL      = os.getenv(
     "GEMINI_IMAGE_MODEL",
-    "gemini-2.5-flash-image",
+    "gemini-2.5-flash-preview-image-generation",
 )
 
 PINTEREST_ACCOUNTS = [

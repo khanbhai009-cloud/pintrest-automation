@@ -1,8 +1,9 @@
 """
-mastermind/node_cmo.py — Node 2: CMO Mastermind (Gemini)
+mastermind/node_cmo.py — Node 2: CMO Mastermind (Cerebras)
 Determines pin type (70% VIRAL_PIN / 30% AFFILIATE_PIN) per account, then
-calls Gemini with the appropriate prompt to generate pin-ready content JSON.
+calls Cerebras with the appropriate prompt to generate pin-ready content JSON.
 
+Model: qwen-3-235b-a22b-instruct-2507 (via Cerebras OpenAI-compatible API)
 Rate-limit handling: tenacity exponential backoff 12s → 24s → 48s (3 attempts).
 On total failure: hardcoded fallback keeps pipeline alive.
 """
@@ -12,8 +13,7 @@ import logging
 import random
 import re
 
-from google import genai
-from google.genai import types as genai_types
+from cerebras.cloud.sdk import Cerebras
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -21,12 +21,12 @@ from tenacity import (
     wait_exponential,
 )
 
-from config import GEMINI_API_KEY
+from config import CEREBRAS_API_KEY, CEREBRAS_CMO_MODEL
 from mastermind.state import MastermindState
 
 logger = logging.getLogger(__name__)
 
-_gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+_cerebras_client = Cerebras(api_key=CEREBRAS_API_KEY) if CEREBRAS_API_KEY else None
 
 # ── Hardcoded fallbacks ───────────────────────────────────────────────────────
 HARDCODED_FALLBACK: dict = {
@@ -140,7 +140,7 @@ def _extract_json(raw: str) -> dict:
     start = cleaned.find("{")
     end = cleaned.rfind("}") + 1
     if start == -1 or end == 0:
-        raise ValueError("No JSON object found in Gemini response.")
+        raise ValueError("No JSON object found in Cerebras response.")
     return json.loads(cleaned[start:end])
 
 
@@ -154,20 +154,31 @@ def _choose_pin_type() -> str:
     stop=stop_after_attempt(3),
     reraise=True,
 )
-def _call_gemini_sync(prompt: str) -> str:
-    if not _gemini_client:
-        raise ValueError("GEMINI_API_KEY is not configured.")
-    response = _gemini_client.models.generate_content(
-        model="gemini-2.5-flash-lite",
-        contents=str(prompt),
-        config=genai_types.GenerateContentConfig(temperature=0.3),
+def _call_cerebras_sync(prompt: str) -> str:
+    """Call Cerebras qwen-3-235b-a22b-instruct-2507 synchronously (offloaded to thread)."""
+    if not _cerebras_client:
+        raise ValueError("CEREBRAS_API_KEY is not configured.")
+    response = _cerebras_client.chat.completions.create(
+        model=CEREBRAS_CMO_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": "You are an expert Pinterest CMO. Always respond with valid raw JSON only — no markdown fences, no extra text.",
+            },
+            {
+                "role": "user",
+                "content": str(prompt),
+            },
+        ],
+        temperature=0.3,
+        max_tokens=600,
     )
-    return response.text
+    return response.choices[0].message.content
 
 
-def _call_gemini_for_account(account_key: str, metrics: dict, pin_type_override: str = None) -> dict:
+def _call_cerebras_for_account(account_key: str, metrics: dict, pin_type_override: str = None) -> dict:
     """
-    Generate CMO strategy for one account.
+    Generate CMO strategy for one account using Cerebras.
     pin_type_override: if "VIRAL_PIN" or "AFFILIATE_PIN", skips the 70/30 random routing.
     """
     if pin_type_override in ("VIRAL_PIN", "AFFILIATE_PIN"):
@@ -185,23 +196,23 @@ def _call_gemini_for_account(account_key: str, metrics: dict, pin_type_override:
     else:
         prompt = _AFFILIATE_PIN_PROMPT.format(account_profile=profile, metrics=metrics_str)
 
-    raw    = _call_gemini_sync(prompt)
+    raw    = _call_cerebras_sync(prompt)
     result = _extract_json(raw)
 
     required = ("pin_type", "strategy", "vibe", "title", "description", "tags", "visual_prompt")
     for field in required:
         if field not in result:
-            raise KeyError(f"Missing '{field}' in Gemini response for {account_key}.")
+            raise KeyError(f"Missing '{field}' in Cerebras response for {account_key}.")
 
     return result
 
 
 async def node_cmo_mastermind(state: MastermindState) -> dict:
     """
-    Node 2 — CMO Mastermind.
+    Node 2 — CMO Mastermind (Cerebras qwen-3-235b-a22b-instruct-2507).
     Supports single-account triggers ("account1" or "account2" in cycle_trigger).
     Supports pin_type override embedded in trigger string (e.g., "scheduled-account1-VIRAL_PIN").
-    On complete failure → hardcoded fallback keeps pipeline alive.
+    On total failure → hardcoded fallback keeps pipeline alive.
     """
     trigger = state.get("cycle_trigger", "")
 
@@ -226,7 +237,10 @@ async def node_cmo_mastermind(state: MastermindState) -> dict:
             a2_override = "AFFILIATE_PIN"
 
     accounts_label = "A1 only" if only_a1 else ("A2 only" if only_a2 else "Both")
-    logger.info(f"🧠 [Node 2 — CMO Mastermind] Gemini analysing {accounts_label} | trigger={trigger}")
+    logger.info(
+        f"🧠 [Node 2 — CMO Mastermind] Cerebras ({CEREBRAS_CMO_MODEL}) "
+        f"analysing {accounts_label} | trigger={trigger}"
+    )
 
     a1_metrics = _compute_metrics(state["a1_raw_analytics"])
     a2_metrics = _compute_metrics(state["a2_raw_analytics"])
@@ -238,11 +252,11 @@ async def node_cmo_mastermind(state: MastermindState) -> dict:
         logger.info(f"   A1 profile: {a1_metrics['profile']}")
         try:
             a1_strategy = await asyncio.to_thread(
-                _call_gemini_for_account, "account_1", a1_metrics, a1_override
+                _call_cerebras_for_account, "account_1", a1_metrics, a1_override
             )
             logger.info(f"✅ [Node 2] A1 → {a1_strategy['pin_type']} / {a1_strategy['strategy']}")
         except Exception as e:
-            logger.error(f"❌ [Node 2] Gemini failed for A1: {e}. Using fallback.")
+            logger.error(f"❌ [Node 2] Cerebras failed for A1: {e}. Using fallback.")
             a1_strategy = HARDCODED_FALLBACK["account_1"]
             fallback = True
     else:
@@ -253,18 +267,18 @@ async def node_cmo_mastermind(state: MastermindState) -> dict:
         logger.info(f"   A2 profile: {a2_metrics['profile']}")
         try:
             a2_strategy = await asyncio.to_thread(
-                _call_gemini_for_account, "account_2", a2_metrics, a2_override
+                _call_cerebras_for_account, "account_2", a2_metrics, a2_override
             )
             logger.info(f"✅ [Node 2] A2 → {a2_strategy['pin_type']} / {a2_strategy['strategy']}")
         except Exception as e:
-            logger.error(f"❌ [Node 2] Gemini failed for A2: {e}. Using fallback.")
+            logger.error(f"❌ [Node 2] Cerebras failed for A2: {e}. Using fallback.")
             a2_strategy = HARDCODED_FALLBACK["account_2"]
             fallback = True
     else:
         a2_strategy = {}
 
     return {
-        "a1_cmo_strategy":   a1_strategy,
-        "a2_cmo_strategy":   a2_strategy,
+        "a1_cmo_strategy":    a1_strategy,
+        "a2_cmo_strategy":    a2_strategy,
         "fallback_triggered": fallback,
     }
