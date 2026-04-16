@@ -4,6 +4,8 @@ load_dotenv()
 
 GROQ_API_KEY          = os.getenv("GROQ_API_KEY")
 CEREBRAS_API_KEY      = os.getenv("CEREBRAS_API_KEY")
+OPENROUTER_API_KEY    = os.getenv("OPENROUTER_API_KEY")
+IMGBB_API_KEY         = os.getenv("IMGBB_API_KEY")
 GROQ_MODEL            = "llama-3.3-70b-versatile"
 CEREBRAS_MODEL        = "llama3.3-70b"
 CEREBRAS_CMO_MODEL    = "qwen-3-235b-a22b-instruct-2507"
