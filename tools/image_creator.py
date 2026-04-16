@@ -43,7 +43,7 @@ _MIN_VALID_BYTES = 5_000  # images smaller than this are treated as failures
 _MAX_RETRIES     = 2      # total attempts per model (1 try + 1 retry)
 
 _OPENROUTER_IMAGE_URL  = "https://openrouter.ai/api/v1/images/generations"
-_OPENROUTER_IMAGE_MODEL = "black-forest-labs/flux-1.1-pro"
+_OPENROUTER_IMAGE_MODEL = "black-forest-labs/flux.2-pro"
 
 _POLLINATIONS_BASE = "https://image.pollinations.ai/prompt"
 
