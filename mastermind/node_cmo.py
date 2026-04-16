@@ -259,7 +259,7 @@ def _call_gemini_sync(prompt: str) -> str:
         config=_gtypes.GenerateContentConfig(
             system_instruction=_GEMINI_SYSTEM_INSTRUCTION,   # ← system goes HERE
             temperature=0.75,     # Slightly higher for more creative Pinterest copy
-            max_output_tokens=900,
+            max_output_tokens=6000,
             response_mime_type="application/json",  # Forces clean JSON output
         ),
     )
@@ -278,7 +278,7 @@ def _call_cerebras_sync(prompt: str) -> str:
                 {"role": "user",   "content": prompt},
             ],
             temperature=0.75,
-            max_tokens=900,
+            max_tokens=6000,
         )
         return response.choices[0].message.content
     except Exception as e:
