@@ -110,7 +110,7 @@ async def get_best_lifestyle_image(image_urls: list) -> str:
         content_payload.append({"type": "image_url", "image_url": {"url": url}})
 
     payload = {
-        "model": "llama-3.2-11b-vision-preview",
+        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
         "messages": [{"role": "user", "content": content_payload}],
         "temperature": 0.1,
         "max_tokens": 100
