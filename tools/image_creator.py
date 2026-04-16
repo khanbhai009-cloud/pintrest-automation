@@ -3,13 +3,18 @@ tools/image_creator.py — Dual-Layer T2I with Retry Logic
 
 PIPELINE (in order):
   1. PRIMARY   — OpenRouter         (black-forest-labs/flux.2-pro)
-  2. SECONDARY — Pollinations.ai    (free URL-based, no API key)
+  2. SECONDARY — Pollinations.ai    (free URL-based, no API key — 4K portrait)
 
 RULES per model:
   • Each model gets exactly 2 chances  (1st try + 1 retry).
   • Timeout per API call = 180 seconds (3 minutes).
   • A 3-second delay fires ONLY when a call fails (exception OR image < 5 000 bytes).
   • If both tries of a model fail → move to the next model immediately.
+
+IMAGE QUALITY:
+  • All prompts appended with: "4K ultra HD, photorealistic, Pinterest 9:16"
+  • Pollinations: 1080x1920 (Full HD portrait — max quality)
+  • ImgBB: permanent hosting (no expiration)
 """
 
 import asyncio
@@ -20,7 +25,6 @@ from typing import Optional
 
 import httpx
 
-# Gemini imports aur keys hata diye gaye hain
 from config import IMGBB_API_KEY, OPENROUTER_API_KEY
 
 logger = logging.getLogger(__name__)
@@ -31,11 +35,12 @@ _RETRY_DELAY     = 3      # seconds — only on failure or bad image
 _MIN_VALID_BYTES = 5_000  # images smaller than this are treated as failures
 _MAX_RETRIES     = 2      # total attempts per model (1 try + 1 retry)
 
-# Sahi OpenRouter API Endpoint
+_4K_QUALITY_SUFFIX = ", 4K ultra HD, photorealistic, Pinterest 9:16"
+
 _OPENROUTER_IMAGE_URL   = "https://openrouter.ai/api/v1/chat/completions"
 _OPENROUTER_IMAGE_MODEL = "black-forest-labs/flux.2-pro"
 
-_POLLINATIONS_BASE      = "https://image.pollinations.ai/prompt"
+_POLLINATIONS_BASE = "https://image.pollinations.ai/prompt"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -57,16 +62,16 @@ async def _upload_to_imgbb(image_bytes: bytes) -> Optional[str]:
         logger.error("❌ [ImgBB] IMGBB_API_KEY not set.")
         return None
     encoded = base64.b64encode(image_bytes).decode("utf-8")
-    logger.info(f"⬆️  [ImgBB] Uploading {len(image_bytes):,} bytes...")
+    logger.info(f"⬆️  [ImgBB] Uploading {len(image_bytes):,} bytes (permanent, high-quality)...")
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
                 "https://api.imgbb.com/1/upload",
-                data={"key": IMGBB_API_KEY, "image": encoded, "expiration": "1800"},
+                data={"key": IMGBB_API_KEY, "image": encoded},
             )
             resp.raise_for_status()
             url = resp.json()["data"]["url"]
-        logger.info(f"✅ [ImgBB] Hosted: {url}")
+        logger.info(f"✅ [ImgBB] Permanently hosted: {url}")
         return url
     except Exception as e:
         logger.error(f"❌ [ImgBB] Upload failed: {e}")
@@ -74,6 +79,13 @@ async def _upload_to_imgbb(image_bytes: bytes) -> Optional[str]:
 
 def _is_valid(image_bytes: Optional[bytes]) -> bool:
     return bool(image_bytes) and len(image_bytes) >= _MIN_VALID_BYTES
+
+def _enrich_prompt(prompt: str, max_chars: int = 500) -> str:
+    """Append 4K quality suffix if not already present, then truncate."""
+    base = prompt.strip()
+    if "4K" not in base and "4k" not in base:
+        base = base + _4K_QUALITY_SUFFIX
+    return base[:max_chars]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -84,18 +96,19 @@ async def _openrouter_once(prompt: str) -> Optional[bytes]:
     if not OPENROUTER_API_KEY:
         raise RuntimeError("OPENROUTER_API_KEY not configured.")
 
+    enriched = _enrich_prompt(prompt)
+
     headers = {
         "Authorization":  f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type":   "application/json",
         "HTTP-Referer":   "https://pinteresto.app",
         "X-Title":        "Pinteresto AI",
     }
-    
-    # Correct Payload Structure for Image Generation
+
     payload = {
         "model":  _OPENROUTER_IMAGE_MODEL,
         "messages": [
-            {"role": "user", "content": f"{prompt[:500]}, ultra-realistic, Pinterest portrait 9:16, 8k"}
+            {"role": "user", "content": enriched}
         ],
         "modalities": ["image"]
     }
@@ -105,11 +118,10 @@ async def _openrouter_once(prompt: str) -> Optional[bytes]:
         resp.raise_for_status()
         data = resp.json()
 
-    # Image Extraction Logic (Base64 Decoder)
     try:
         message = data["choices"][0]["message"]
         images = message.get("images", [])
-        
+
         if images:
             img_url = images[0]["image_url"]["url"]
             if "base64," in img_url:
@@ -117,7 +129,7 @@ async def _openrouter_once(prompt: str) -> Optional[bytes]:
                 return base64.b64decode(b64_data)
             else:
                 return await _download_bytes(img_url)
-                
+
     except (KeyError, IndexError) as e:
         logger.error(f"❌ [OpenRouter] Parse Error: {e} | Data: {str(data)[:200]}")
         raise ValueError("Response structure did not contain image data.")
@@ -145,13 +157,17 @@ async def _t2i_openrouter(prompt: str) -> Optional[bytes]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Model 2 — Pollinations.ai (free, no API key)
+# Model 2 — Pollinations.ai (free, no API key — 4K portrait 1080x1920)
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _pollinations_once(prompt: str) -> Optional[bytes]:
-    full_prompt = f"{prompt[:400]}, ultra-realistic, 8k, Pinterest portrait 9:16"
-    encoded = urllib.parse.quote(full_prompt)
-    url = f"{_POLLINATIONS_BASE}/{encoded}?width=768&height=1365&nologo=true&enhance=true&model=flux"
+    enriched = _enrich_prompt(prompt, max_chars=400)
+    encoded  = urllib.parse.quote(enriched)
+    url = (
+        f"{_POLLINATIONS_BASE}/{encoded}"
+        f"?width=1080&height=1920&nologo=true&enhance=true&model=flux&quality=high"
+    )
+    logger.info(f"🎨 [Pollinations] Requesting 1080x1920 4K portrait...")
     img = await _download_bytes(url, timeout=_CALL_TIMEOUT)
     if img is None:
         raise RuntimeError("Pollinations.ai download returned None.")
@@ -182,14 +198,14 @@ async def _t2i_pollinations(prompt: str) -> Optional[bytes]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def generate_pin_image(visual_prompt: str) -> Optional[str]:
-    logger.info("🎨 [Image Pipeline] VIRAL_PIN — starting dual-layer T2I...")
+    logger.info("🎨 [Image Pipeline] VIRAL_PIN — starting dual-layer T2I (4K quality)...")
 
     # Layer 1: OpenRouter
     image_bytes = await _t2i_openrouter(visual_prompt)
 
-    # Layer 2: Pollinations
+    # Layer 2: Pollinations (1080x1920, 4K quality)
     if not image_bytes:
-        logger.info("🔄 [Image Pipeline] OpenRouter exhausted — trying Pollinations.ai...")
+        logger.info("🔄 [Image Pipeline] OpenRouter exhausted — trying Pollinations.ai (1080x1920)...")
         image_bytes = await _t2i_pollinations(visual_prompt)
 
     if not image_bytes:

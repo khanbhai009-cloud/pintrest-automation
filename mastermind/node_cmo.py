@@ -1,10 +1,11 @@
 """
-mastermind/node_cmo.py — Node 2: CMO Mastermind (Cerebras)
+mastermind/node_cmo.py — Node 2: CMO Mastermind
 
-Text model  : Cerebras qwen-3-235b-a22b-instruct-2507 (OpenAI-compatible SDK)
+Text model  : Gemini 2.5 Flash          (PRIMARY)
+              Cerebras qwen-3-235b       (FALLBACK)
 Image model : Gemini gemini-2.5-flash-preview-image-generation (primary)
-              OpenRouter black-forest-labs/flux-1.1-pro       (fallback 1)
-              Pollinations.ai                                   (fallback 2)
+              OpenRouter black-forest-labs/flux-1.1-pro         (fallback 1)
+              Pollinations.ai                                    (fallback 2)
 
 Pin routing : 70% VIRAL_PIN / 30% AFFILIATE_PIN
 Scheduler   : 10 pins/day — 5 per account — EST 7:30 AM → 7:30 PM
@@ -27,12 +28,22 @@ from tenacity import (
     wait_exponential,
 )
 
-from config import CEREBRAS_API_KEY, CEREBRAS_CMO_MODEL
+from config import CEREBRAS_API_KEY, CEREBRAS_CMO_MODEL, GEMINI_API_KEY
 from mastermind.state import MastermindState
 
 logger = logging.getLogger(__name__)
 
 _cerebras_client = Cerebras(api_key=CEREBRAS_API_KEY) if CEREBRAS_API_KEY else None
+
+# ── Gemini Client (Primary CMO) ───────────────────────────────────────────────
+try:
+    from google import genai as _genai
+    from google.genai import types as _gtypes
+    _gemini_client = _genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+except Exception:
+    _gemini_client = None
+
+_GEMINI_CMO_MODEL = "gemini-2.5-flash"
 
 # ── Hardcoded fallbacks ───────────────────────────────────────────────────────
 HARDCODED_FALLBACK: dict = {
@@ -43,7 +54,7 @@ HARDCODED_FALLBACK: dict = {
         "title": "Cozy Home Aesthetic That Will Transform Your Space ✨",
         "description": "Create the most satisfying, organised home with these gorgeous finds. Pure aesthetic bliss for your Pinterest feed.",
         "tags": ["HomeAesthetic", "CozyHome", "HomeOrganization", "KitchenGoals", "HomeDecor"],
-        "visual_prompt": "Satisfying ASMR flat-lay of luxurious kitchen gadgets on marble countertop, warm golden-hour lighting, perfect organisation, hyperrealistic, 8k",
+        "visual_prompt": "Satisfying ASMR flat-lay of luxurious kitchen gadgets on marble countertop, warm golden-hour lighting, perfect organisation, hyperrealistic, 4K ultra HD, 8k, Pinterest 9:16",
     },
     "account_2": {
         "pin_type": "VIRAL_PIN",
@@ -52,7 +63,7 @@ HARDCODED_FALLBACK: dict = {
         "title": "Minimal WFH Setup That Looks Like a $10K Studio 🖥️",
         "description": "The cleanest desk setup inspiration for your home office. Frosted glass, gradient light, premium precision — pure tech aesthetic.",
         "tags": ["WFHSetup", "DeskSetup", "TechAesthetic", "HomeOffice", "MinimalDesk"],
-        "visual_prompt": "Apple-style liquid glassmorphism desk setup, frosted glass panels, smarthome hub floating on soft blue-purple gradient, cinematic lighting, 8k",
+        "visual_prompt": "Apple-style liquid glassmorphism desk setup, frosted glass panels, smarthome hub floating on soft blue-purple gradient, cinematic lighting, 4K ultra HD, 8k, Pinterest 9:16",
     },
 }
 
@@ -63,7 +74,7 @@ SYSTEM CONTEXT (read carefully before generating):
 You are the CMO AI of PINTERESTO — a fully autonomous Pinterest affiliate marketing system.
 
 ARCHITECTURE:
-  • This prompt is processed by: Cerebras qwen-3-235b-a22b-instruct-2507
+  • This prompt is processed by: Gemini 2.5 Flash (primary) / Cerebras qwen-3-235b (fallback)
   • Image generation (for VIRAL_PIN visual_prompt):
       Layer 1 → Gemini gemini-2.5-flash-preview-image-generation  (primary, 9:16 portrait)
       Layer 2 → OpenRouter black-forest-labs/flux-1.1-pro          (fallback 1)
@@ -72,7 +83,7 @@ ARCHITECTURE:
   • Execution agent: Groq llama-3.3-70b-versatile (Cerebras fallback)
   • Products database: Google Sheets "Approved Deals"
   • Post delivery: Make.com webhooks → Pinterest API
-  • Image hosting: ImgBB (all images hosted here before posting)
+  • Image hosting: ImgBB (all images hosted here before posting, permanent high-quality)
 
 SCHEDULER:
   • 10 pins/day total — 5 per account
@@ -115,10 +126,11 @@ Pure aesthetic content — NO product promotion, NO affiliate links, NO CTA.
 
 VISUAL PROMPT RULES (critical — this is fed directly to Gemini image AI):
   • Format: comma-separated descriptive keywords, no sentences
-  • Style: ultra-realistic, cinematic, 9:16 portrait ratio
+  • Style: ultra-realistic, cinematic, 9:16 portrait ratio, 4K ultra HD
   • Include: lighting style, color palette, mood, specific objects/setting
-  • Length: 100–200 characters max
-  • Example: "cozy kitchen flatlay, marble countertop, golden hour lighting, warm tones, ASMR aesthetic, hyperrealistic, 8k"
+  • ALWAYS end with: "4K ultra HD, photorealistic, Pinterest 9:16"
+  • Length: 100–220 characters max
+  • Example: "cozy kitchen flatlay, marble countertop, golden hour lighting, warm tones, ASMR aesthetic, hyperrealistic, 4K ultra HD, photorealistic, Pinterest 9:16"
 
 OUTPUT ONLY valid raw JSON — no markdown fences, no explanation, no extra text:
 {{
@@ -128,7 +140,7 @@ OUTPUT ONLY valid raw JSON — no markdown fences, no explanation, no extra text
   "title": "SEO-optimized title under 100 chars — primary keyword first, aspirational tone, curiosity hook",
   "description": "lifestyle description under 400 chars — pure inspiration, NO product names, NO CTAs, NO prices, NO links — make it feel like a human wrote it",
   "tags": ["BroadNicheTag", "TrendingAestheticTag", "AspirationalTag", "SeasonalOrMoodTag", "NicheSpecificTag"],
-  "visual_prompt": "comma-separated T2I keywords under 200 chars, ultra-realistic, 9:16 Pinterest portrait"
+  "visual_prompt": "comma-separated T2I keywords under 220 chars, must end with: 4K ultra HD, photorealistic, Pinterest 9:16"
 }}"""
 
 _AFFILIATE_PIN_PROMPT = """{system_context}
@@ -226,13 +238,39 @@ def _extract_json(raw: str) -> dict:
     start = cleaned.find("{")
     end = cleaned.rfind("}") + 1
     if start == -1 or end == 0:
-        raise ValueError("No JSON object found in Cerebras response.")
+        raise ValueError("No JSON object found in CMO response.")
     return json.loads(cleaned[start:end])
 
 
 def _choose_pin_type() -> str:
     return random.choices(["VIRAL_PIN", "AFFILIATE_PIN"], weights=[70, 30], k=1)[0]
 
+
+# ── Gemini Primary Call ────────────────────────────────────────────────────────
+
+@retry(
+    retry=retry_if_exception_type(Exception),
+    wait=wait_exponential(multiplier=8, min=8, max=60),
+    stop=stop_after_attempt(3),
+    reraise=True,
+)
+def _call_gemini_sync(prompt: str) -> str:
+    """Call Gemini 2.5 Flash synchronously (offloaded to thread)."""
+    if not _gemini_client:
+        raise ValueError("GEMINI_API_KEY is not configured.")
+    response = _gemini_client.models.generate_content(
+        model=_GEMINI_CMO_MODEL,
+        contents=prompt,
+        config=_gtypes.GenerateContentConfig(
+            system_instruction="You are an expert Pinterest CMO. Always respond with valid raw JSON only — no markdown fences, no extra text.",
+            temperature=0.4,
+            max_output_tokens=900,
+        ),
+    )
+    return response.text.strip()
+
+
+# ── Cerebras Fallback Call ─────────────────────────────────────────────────────
 
 @retry(
     retry=retry_if_exception_type(Exception),
@@ -241,7 +279,7 @@ def _choose_pin_type() -> str:
     reraise=True,
 )
 def _call_cerebras_sync(prompt: str) -> str:
-    """Call Cerebras qwen-3-235b-a22b-instruct-2507 synchronously (offloaded to thread)."""
+    """Call Cerebras qwen-3-235b synchronously (fallback)."""
     if not _cerebras_client:
         raise ValueError("CEREBRAS_API_KEY is not configured.")
     response = _cerebras_client.chat.completions.create(
@@ -262,9 +300,11 @@ def _call_cerebras_sync(prompt: str) -> str:
     return response.choices[0].message.content
 
 
-def _call_cerebras_for_account(account_key: str, metrics: dict, pin_type_override: str = None) -> dict:
+def _call_cmo_for_account(account_key: str, metrics: dict, pin_type_override: str = None) -> dict:
     """
-    Generate CMO strategy for one account using Cerebras.
+    Generate CMO strategy for one account.
+    Primary: Gemini 2.5 Flash
+    Fallback: Cerebras qwen-3-235b
     pin_type_override: if "VIRAL_PIN" or "AFFILIATE_PIN", skips the 70/30 random routing.
     """
     if pin_type_override in ("VIRAL_PIN", "AFFILIATE_PIN"):
@@ -290,20 +330,31 @@ def _call_cerebras_for_account(account_key: str, metrics: dict, pin_type_overrid
             metrics=metrics_str,
         )
 
-    raw    = _call_cerebras_sync(prompt)
-    result = _extract_json(raw)
+    # PRIMARY: Gemini 2.5 Flash
+    try:
+        logger.info(f"   [{account_key}] 🧠 Trying Gemini 2.5 Flash (primary)...")
+        raw    = _call_gemini_sync(prompt)
+        result = _extract_json(raw)
+        logger.info(f"   [{account_key}] ✅ Gemini succeeded")
+    except Exception as gemini_err:
+        logger.warning(f"   [{account_key}] ⚠️ Gemini failed: {gemini_err} — switching to Cerebras fallback...")
+        # FALLBACK: Cerebras
+        raw    = _call_cerebras_sync(prompt)
+        result = _extract_json(raw)
+        logger.info(f"   [{account_key}] ✅ Cerebras fallback succeeded")
 
     required = ("pin_type", "strategy", "vibe", "title", "description", "tags", "visual_prompt")
     for field in required:
         if field not in result:
-            raise KeyError(f"Missing '{field}' in Cerebras response for {account_key}.")
+            raise KeyError(f"Missing '{field}' in CMO response for {account_key}.")
 
     return result
 
 
 async def node_cmo_mastermind(state: MastermindState) -> dict:
     """
-    Node 2 — CMO Mastermind (Cerebras qwen-3-235b-a22b-instruct-2507).
+    Node 2 — CMO Mastermind.
+    Primary: Gemini 2.5 Flash | Fallback: Cerebras qwen-3-235b
     Supports single-account triggers ("account1" or "account2" in cycle_trigger).
     Supports pin_type override embedded in trigger string (e.g., "scheduled-account1-VIRAL_PIN").
     On total failure → hardcoded fallback keeps pipeline alive.
@@ -332,7 +383,7 @@ async def node_cmo_mastermind(state: MastermindState) -> dict:
 
     accounts_label = "A1 only" if only_a1 else ("A2 only" if only_a2 else "Both")
     logger.info(
-        f"🧠 [Node 2 — CMO Mastermind] Cerebras ({CEREBRAS_CMO_MODEL}) "
+        f"🧠 [Node 2 — CMO Mastermind] Gemini 2.5 Flash (primary) / Cerebras (fallback) "
         f"analysing {accounts_label} | trigger={trigger}"
     )
 
@@ -346,11 +397,11 @@ async def node_cmo_mastermind(state: MastermindState) -> dict:
         logger.info(f"   A1 profile: {a1_metrics['profile']}")
         try:
             a1_strategy = await asyncio.to_thread(
-                _call_cerebras_for_account, "account_1", a1_metrics, a1_override
+                _call_cmo_for_account, "account_1", a1_metrics, a1_override
             )
             logger.info(f"✅ [Node 2] A1 → {a1_strategy['pin_type']} / {a1_strategy['strategy']}")
         except Exception as e:
-            logger.error(f"❌ [Node 2] Cerebras failed for A1: {e}. Using fallback.")
+            logger.error(f"❌ [Node 2] All CMO models failed for A1: {e}. Using hardcoded fallback.")
             a1_strategy = HARDCODED_FALLBACK["account_1"]
             fallback = True
     else:
@@ -361,11 +412,11 @@ async def node_cmo_mastermind(state: MastermindState) -> dict:
         logger.info(f"   A2 profile: {a2_metrics['profile']}")
         try:
             a2_strategy = await asyncio.to_thread(
-                _call_cerebras_for_account, "account_2", a2_metrics, a2_override
+                _call_cmo_for_account, "account_2", a2_metrics, a2_override
             )
             logger.info(f"✅ [Node 2] A2 → {a2_strategy['pin_type']} / {a2_strategy['strategy']}")
         except Exception as e:
-            logger.error(f"❌ [Node 2] Cerebras failed for A2: {e}. Using fallback.")
+            logger.error(f"❌ [Node 2] All CMO models failed for A2: {e}. Using hardcoded fallback.")
             a2_strategy = HARDCODED_FALLBACK["account_2"]
             fallback = True
     else:
