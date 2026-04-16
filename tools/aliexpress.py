@@ -2,10 +2,7 @@ import asyncio
 import httpx
 import logging
 import random
-import os
-from config import RAPIDAPI_KEY
-
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+from config import RAPIDAPI_KEY, GROQ_API_KEY, GROQ_VISION_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +107,7 @@ async def get_best_lifestyle_image(image_urls: list) -> str:
         content_payload.append({"type": "image_url", "image_url": {"url": url}})
 
     payload = {
-        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+        "model": GROQ_VISION_MODEL,
         "messages": [{"role": "user", "content": content_payload}],
         "temperature": 0.1,
         "max_tokens": 100

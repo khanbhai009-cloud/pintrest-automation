@@ -15,7 +15,7 @@ from agent import run_agent, fill_missing_niches, fetch_aliexpress_products
 from mastermind.graph import run_mastermind
 from tools.google_drive import get_all_products
 from tools.llm import chat
-from config import GEMINI_API_KEY
+from config import GEMINI_API_KEY, GEMINI_CHAT_MODEL
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
@@ -472,7 +472,7 @@ async def cmo_chat_endpoint(req: ChatMessage):
         from google.genai import types as _gtypes
         response = await asyncio.to_thread(
             lambda: _gemini_client.models.generate_content(
-                model="gemini-2.0-flash-lite",
+                model=GEMINI_CHAT_MODEL,
                 contents=full_prompt,
                 config=_gtypes.GenerateContentConfig(
                     temperature=0.8,

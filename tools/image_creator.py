@@ -22,7 +22,7 @@ from typing import Optional
 
 import httpx
 
-from config import IMGBB_API_KEY, OPENROUTER_API_KEY
+from config import IMGBB_API_KEY, OPENROUTER_API_KEY, OPENROUTER_IMAGE_MODEL, POLLINATIONS_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,6 @@ _RATIO_DIMS = {
 }
 
 _OPENROUTER_URL   = "https://openrouter.ai/api/v1/chat/completions"
-_OPENROUTER_MODEL = "black-forest-labs/flux.2-pro"
 _POLLINATIONS_BASE = "https://image.pollinations.ai/prompt"
 
 
@@ -108,7 +107,7 @@ async def _openrouter_once(prompt: str, ratio: str) -> Optional[bytes]:
         "X-Title":       "Pinteresto AI",
     }
     payload = {
-        "model":      _OPENROUTER_MODEL,
+        "model":      OPENROUTER_IMAGE_MODEL,
         "messages":   [{"role": "user", "content": enriched}],
         "modalities": ["image"],
     }
@@ -160,7 +159,7 @@ async def _pollinations_once(prompt: str, ratio: str) -> Optional[bytes]:
     encoded  = urllib.parse.quote(enriched)
     url      = (
         f"{_POLLINATIONS_BASE}/{encoded}"
-        f"?width={w}&height={h}&nologo=true&enhance=true&model=flux&quality=high"
+        f"?width={w}&height={h}&nologo=true&enhance=true&model={POLLINATIONS_MODEL}&quality=high"
     )
     logger.info(f"🎨 [Pollinations] {w}x{h} | ratio={ratio}")
     img = await _download_bytes(url, timeout=_CALL_TIMEOUT)

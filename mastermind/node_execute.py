@@ -8,6 +8,7 @@ import os
 import uuid
 import urllib.parse
 from mastermind.state import MastermindState
+from config import POLLINATIONS_MODEL
 from tools.google_drive import get_pending_products, mark_as_posted
 from tools.make_webhook import post_to_pinterest
 
@@ -34,7 +35,7 @@ async def _generate_ai_image(strategy_name: str, cmo_strategy: dict, account_lab
     seed = uuid.uuid4().int % 10000
 
     # 1. Primary: Pollinations.ai (Fastest & Public)
-    pollinations_url = f"https://pollinations.ai/p/{encoded_prompt}?width=1024&height=1792&nologo=true&model=flux&seed={seed}"
+    pollinations_url = f"https://pollinations.ai/p/{encoded_prompt}?width=1024&height=1792&nologo=true&model={POLLINATIONS_MODEL}&seed={seed}"
     
     # 2. Fallback Logic: Puter/Imagen Style (If needed in future)
     # Note: For now, we return Pollinations because Pinterest needs a direct public URL.

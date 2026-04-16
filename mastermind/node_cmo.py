@@ -13,7 +13,7 @@ import logging
 import random
 import re
 
-from config import CEREBRAS_API_KEY, CEREBRAS_CMO_MODEL, GEMINI_API_KEY
+from config import CEREBRAS_API_KEY, CEREBRAS_CMO_MODEL, GEMINI_API_KEY, GEMINI_CMO_MODEL
 from mastermind.state import MastermindState
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,6 @@ try:
 except Exception:
     _gemini_client = None
 
-_GEMINI_CMO_MODEL = "gemini-2.5-flash"
 
 # ── Cerebras client ────────────────────────────────────────────────────────────
 try:
@@ -254,7 +253,7 @@ def _call_gemini_sync(prompt: str) -> str:
     if not _gemini_client:
         raise ValueError("GEMINI_API_KEY not configured.")
     response = _gemini_client.models.generate_content(
-        model=_GEMINI_CMO_MODEL,
+        model=GEMINI_CMO_MODEL,
         contents=prompt,          # ← user prompt ONLY (no system prompt injected here)
         config=_gtypes.GenerateContentConfig(
             system_instruction=_GEMINI_SYSTEM_INSTRUCTION,   # ← system goes HERE
