@@ -24,7 +24,9 @@ MIN_GRAVITY           = 50
 DAILY_POST_LIMIT      = 2   
 LOW_STOCK_THRESHOLD   = 5
 MAX_PRODUCTS_TO_FETCH = int(os.getenv("MAX_PRODUCTS_TO_FETCH", "20"))
-
+CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+CLOUDFLARE_API_TOKEN  = os.getenv("CLOUDFLARE_API_TOKEN")
+CLOUDFLARE_IMAGE_MODEL = @cf/black-forest-labs/flux-1-schnell
 # ── Mastermind CEO System ─────────────────────────────────────────────────────
 GEMINI_API_KEY          = os.getenv("GEMINI_API_KEY")
 ANALYTICS_SHEET_ACC1    = "Analytics_Log"    # Account 1 — HomeDecor
