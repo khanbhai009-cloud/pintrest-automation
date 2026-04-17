@@ -35,6 +35,7 @@ except Exception:
     _cerebras_client = None
 
 # ── Image ratio config ─────────────────────────────────────────────────────────
+# ── Image ratio config ─────────────────────────────────────────────────────────
 _RATIOS = {
     "9:16": {"label": "9:16 tall portrait", "w": 1080, "h": 1920},
     "1:1":  {"label": "1:1 square",          "w": 1080, "h": 1080},
@@ -44,49 +45,64 @@ def _pick_ratio() -> str:
     """70% portrait (9:16), 30% square (1:1) — both perform well on Pinterest."""
     return random.choices(["9:16", "1:1"], weights=[70, 30], k=1)[0]
 
-# ── Hardcoded last-resort fallbacks ───────────────────────────────────────────
-HARDCODED_FALLBACK: dict = {
-    "account_1": {
-        "pin_type":     "VIRAL_PIN",
-        "strategy":     "Visual Pivot",
-        "vibe":         "Warm luxe kitchen — ASMR marble flatlay, golden hour glow",
-        "title":        "Cozy Home Aesthetic That Will Transform Your Space ✨",
-        "description":  "Imagine waking up to a home that feels like a five-star retreat — every corner curated, every surface satisfying. This aesthetic does exactly that. No clutter, no compromise. Just pure visual calm that makes your feed (and your life) feel intentional.",
-        "tags":         ["HomeAesthetic", "CozyHome", "HomeOrganization", "KitchenGoals", "LuxuryHomeDecor"],
-        "visual_prompt": "cozy kitchen flatlay, marble countertop, golden hour warm light, styled wooden tray, artisan ceramics, fresh herbs, bokeh background, hyperrealistic, 4K ultra HD, photorealistic",
-        "ratio":        "9:16",
-    },
-    "account_2": {
-        "pin_type":     "VIRAL_PIN",
-        "strategy":     "Visual Pivot",
-        "vibe":         "Apple-style glassmorphism desk — ultra-clean premium tech",
-        "title":        "Minimal WFH Setup That Looks Like a $10K Studio 🖥️",
-        "description":  "This is what deep focus looks like. No distractions — just a clean slate, soft gradients, and tools that work as beautifully as they look. Whether you're shipping code or closing deals, your environment shapes your output. Level up the space, level up the work.",
-        "tags":         ["WFHSetup", "DeskSetup", "TechAesthetic", "HomeOffice", "MinimalWorkspace"],
-        "visual_prompt": "ultra-minimal desk setup, frosted glass panels, Apple monitor, soft blue-purple gradient ambient light, matte black peripherals, no clutter, cinematic depth of field, 4K ultra HD, photorealistic",
-        "ratio":        "9:16",
-    },
+# ── Master Keywords Dictionary (For Human-Touch Aesthetics) ────────────────────
+KEYWORDS_BY_NICHE = {
+    "home": ["aesthetic room decor", "amazon home finds", "nordic home decor", "led room lighting aesthetic", "minimalist home accessories", "cute room decor"],
+    "kitchen": ["smart kitchen gadgets", "viral kitchen tools", "aesthetic kitchen accessories", "time saving kitchen hacks", "kitchen organization tools", "pastel kitchen gadgets"],
+    "cozy": ["cozy bedroom aesthetic", "warm night light", "fluffy room decor", "reading nook accessories", "ambient room lighting", "kawaii room decor"],
+    "gadgets": ["cool home gadgets viral", "problem solving gadgets", "smart home tech finds", "tiktok made me buy it home", "lazy home gadgets", "cleaning gadgets hacks"],
+    "organize": ["aesthetic storage box", "acrylic makeup organizer", "closet organization tools", "cable management aesthetic", "bathroom space saver", "fridge organization containers"],
+    "tech": ["aesthetic desk setup", "gaming setup accessories", "cool tech gadgets", "cyberpunk desk accessories", "futuristic tech gadgets", "laptop accessories aesthetic"],
+    "budget": ["cool gadgets under 10", "cheap tech finds", "useful gadgets under 20", "mini tech gadgets", "budget gaming accessories", "pocket gadgets"],
+    "phone": ["cute iphone cases", "magsafe accessories aesthetic", "viral phone charms", "phone camera lens kit", "aesthetic phone stand", "power bank aesthetic"],
+    "smarthome": ["smart rgb led strip", "smart home automation", "voice control lights", "smart desk lamp", "galaxy projector light", "smart sensor gadgets"],
+    "wfh": ["work from home desk setup", "ergonomic desk accessories", "ipad accessories aesthetic", "productivity gadgets", "wireless mechanical keyboard", "desk mat aesthetic"]
 }
 
+# ── System prompt (Human Mastermind Persona) ───────────────────────────────────
+_SYSTEM_PROMPT = """\
+You are an Elite Social Media Marketer, SEO Mastermind, and Visionary Art Director.
+You dominate the Pinterest algorithm by understanding human psychology, viral visual trends, and high-converting aesthetics. 
+Your decisions drive massive organic reach, saves, and aesthetic appeal.
+
+ABSOLUTE RULES (violating any = system failure):
+1. Output ONLY a single valid JSON object. Zero prose, zero explanation.
+2. visual_prompt = comma-separated T2I keywords ONLY. No sentences. No text in images.
+3. visual_prompt MUST end with: 4K ultra HD, photorealistic, highly detailed
+4. VIRAL_PIN: Pure visual inspiration. NO product names, NO prices, NO CTAs anywhere.
+5. AFFILIATE_PIN: description must end with exactly → Link in bio 🔗
+6. Tags: CamelCase, no hashtag symbol, max 5 tags.
+"""
+
+_GEMINI_SYSTEM_INSTRUCTION = """\
+You are an Elite Social Media Marketer, SEO Mastermind, and Visionary Art Director.
+Your sole job: analyze the profile + analytics + niche keywords, then return ONE valid JSON strategy object.
+
+STRICT RULES:
+- Output ONLY raw JSON. No markdown. No explanation. No text before or after the JSON.
+- visual_prompt = comma-separated image generation keywords only (no sentences).
+- visual_prompt MUST end with: 4K ultra HD, photorealistic, highly detailed
+- VIRAL_PIN: pure aesthetic inspiration. Zero product names, zero prices, zero CTAs.
+- AFFILIATE_PIN: description must end with: Link in bio 🔗
+- Tags: CamelCase, no #, exactly 5 tags.
+"""
+
+# ── Account profiles ───────────────────────────────────────────────────────────
 # ── Account profiles ───────────────────────────────────────────────────────────
 _ACCOUNT_PROFILES = {
     "account_1": (
         "ACCOUNT: HomeDecor & Lifestyle (account_1)\n"
-        "Core niches: home decor, cozy kitchen, organization, lifestyle gadgets, interior styling\n"
-        "Visual aesthetic: ASMR luxury — warm marble surfaces, gold accents, soft flatlay, golden hour lighting, linen textures\n"
+        "Available Niches: home, kitchen, cozy, organize, gadgets\n"
+        "Visual aesthetic: ADAPTIVE. Match the vibe exactly to the selected niche using the provided keyword dictionary. Always maintain a high-end, aspirational, 'Pinterest-perfect' lifestyle feel.\n"
         "Audience: Homemakers, interior design aspirants, nesting millennials — 18–45, female-skewed, USA/UK\n"
-        "Pinterest behavior: saves aspirational lifestyle content, boards around 'dream home', 'cozy corner', 'aesthetic kitchen'\n"
-        "Content that performs: Satisfying before/afters, organized spaces, warm-toned still-lifes, 'quiet luxury' aesthetic\n"
-        "Tone: calm, aspirational, sensory — evokes feeling, not just information"
+        "Tone: warm, relatable, sensory, like a stylish best friend sharing a secret aesthetic"
     ),
     "account_2": (
         "ACCOUNT: Tech & WFH (account_2)\n"
-        "Core niches: desk setup, work-from-home, consumer tech, smart home, budget tech finds\n"
-        "Visual aesthetic: Apple glassmorphism — frosted glass, gradient ambience, minimal clutter, blue-purple hues, premium matte surfaces\n"
+        "Available Niches: tech, budget, phone, smarthome, wfh\n"
+        "Visual aesthetic: ADAPTIVE. Match the vibe exactly to the selected niche using the provided keyword dictionary. Focus on premium lighting, clean setups, and satisfying organization.\n"
         "Audience: Tech enthusiasts, remote workers, productivity-focused — 18–35, male-skewed, USA/India\n"
-        "Pinterest behavior: saves 'setup inspo', 'dream desk', 'tech aesthetic' — compares products, clicks affiliate links\n"
-        "Content that performs: Jaw-dropping desk setups, 'hidden gem' gadgets, productivity hacks, ambient workspace shots\n"
-        "Tone: confident, clean, aspirational — evokes focus and premium taste"
+        "Tone: sharp, confident, engaging, authoritative but accessible"
     ),
 }
 
@@ -96,33 +112,6 @@ _ACCOUNT_PROFILES = {
 # explanatory text BEFORE the JSON object, breaking _extract_json parsing.
 # Solution: Gemini gets system_instruction via config param only (no duplication).
 # Cerebras gets system role message as before.
-_SYSTEM_PROMPT = """\
-You are the CMO of PINTERESTO — a fully autonomous Pinterest affiliate marketing AI system.
-Your decisions drive viral reach, saves, and affiliate revenue across multiple Pinterest accounts.
-
-ABSOLUTE RULES (violating any = system failure):
-1. Output ONLY a single valid JSON object. Zero prose, zero markdown, zero explanation.
-2. visual_prompt = comma-separated T2I keywords ONLY. No sentences. No brand names.
-3. visual_prompt MUST end with: 4K ultra HD, photorealistic
-4. VIRAL_PIN: NO product names, NO prices, NO CTAs anywhere in title/description/tags.
-5. AFFILIATE_PIN: description must end with exactly → Link in bio 🔗
-6. Tags: CamelCase, no hashtag symbol, no spaces, max 5 tags.
-"""
-
-# ── Gemini-only system instruction (tighter, JSON-focused) ────────────────────
-_GEMINI_SYSTEM_INSTRUCTION = """\
-You are the CMO of PINTERESTO, an autonomous Pinterest marketing AI.
-Your sole job: analyze the account profile + analytics, then return ONE valid JSON strategy object.
-
-STRICT RULES:
-- Output ONLY raw JSON. No markdown. No explanation. No text before or after the JSON.
-- visual_prompt = comma-separated image generation keywords only (no sentences).
-- visual_prompt MUST end with: 4K ultra HD, photorealistic
-- VIRAL_PIN: zero product names, zero prices, zero CTAs.
-- AFFILIATE_PIN: description must end with: Link in bio 🔗
-- Tags: CamelCase, no #, exactly 5 tags.
-"""
-
 # ── Pin type prompts ───────────────────────────────────────────────────────────
 def _build_viral_prompt(profile: str, metrics_str: str, ratio: str) -> str:
     ratio_cfg = _RATIOS[ratio]
