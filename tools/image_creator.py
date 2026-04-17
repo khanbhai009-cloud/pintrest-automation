@@ -2,8 +2,8 @@
 tools/image_creator.py — Dual-Layer T2I Image Pipeline
 
 MODELS (in order):
-  1. OpenRouter   — black-forest-labs/flux.2-pro
-  2. Pollinations — free, URL-based, 4K quality
+  1. Cloudflare   — @cf/black-forest-labs/flux-1-schnell (Primary, Fast & High Quality)
+  2. Pollinations — free, URL-based, 4K quality (Fallback)
 
 RATIO SUPPORT:
   • 9:16 portrait → 1080x1920  (primary, Pinterest-native)
@@ -22,7 +22,13 @@ from typing import Optional
 
 import httpx
 
-from config import IMGBB_API_KEY, OPENROUTER_API_KEY, OPENROUTER_IMAGE_MODEL, POLLINATIONS_MODEL
+from config import (
+    IMGBB_API_KEY, 
+    CLOUDFLARE_ACCOUNT_ID, 
+    CLOUDFLARE_API_TOKEN, 
+    CLOUDFLARE_IMAGE_MODEL, 
+    POLLINATIONS_MODEL
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +43,6 @@ _RATIO_DIMS = {
     "1:1":  (1080, 1080),
 }
 
-_OPENROUTER_URL   = "https://openrouter.ai/api/v1/chat/completions"
 _POLLINATIONS_BASE = "https://image.pollinations.ai/prompt"
 
 
@@ -91,67 +96,57 @@ def _is_valid(image_bytes: Optional[bytes]) -> bool:
     return bool(image_bytes) and len(image_bytes) >= _MIN_VALID_BYTES
 
 
-# ── Model 1: OpenRouter ────────────────────────────────────────────────────────
+# ── Model 1: Cloudflare Workers AI ─────────────────────────────────────────────
 
-async def _openrouter_once(prompt: str, ratio: str) -> Optional[bytes]:
-    if not OPENROUTER_API_KEY:
-        raise RuntimeError("OPENROUTER_API_KEY not configured.")
+async def _cloudflare_once(prompt: str, ratio: str) -> Optional[bytes]:
+    if not CLOUDFLARE_ACCOUNT_ID or not CLOUDFLARE_API_TOKEN:
+        raise RuntimeError("CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN not configured.")
 
-    w, h      = _get_dims(ratio)
-    enriched  = _enrich_prompt(f"{prompt}, {w}x{h}")
+    w, h     = _get_dims(ratio)
+    # Cloudflare ka Schnell model aspectRatio ya direct dims param support nahi karta hamesha, 
+    # isliye hum usko prompt me hi dimensions bata dete hain.
+    enriched = _enrich_prompt(f"{prompt}, portrait {w}x{h} size")
 
+    url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/{CLOUDFLARE_IMAGE_MODEL}"
+    
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type":  "application/json",
-        "HTTP-Referer":  "https://pinteresto.app",
-        "X-Title":       "Pinteresto AI",
+        "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+        "Content-Type":  "application/json"
     }
+    
     payload = {
-        "model":      OPENROUTER_IMAGE_MODEL,
-        "messages":   [{"role": "user", "content": enriched}],
-        "modalities": ["image"],
+        "prompt": enriched,
+        "num_steps": 8  # Higher steps = better quality for Flux Schnell
     }
 
     async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
-        resp = await client.post(_OPENROUTER_URL, headers=headers, json=payload)
+        resp = await client.post(url, headers=headers, json=payload)
         resp.raise_for_status()
-        data = resp.json()
-
-    try:
-        message = data["choices"][0]["message"]
-        images  = message.get("images", [])
-        if images:
-            img_url = images[0]["image_url"]["url"]
-            if "base64," in img_url:
-                return base64.b64decode(img_url.split("base64,")[1])
-            return await _download_bytes(img_url)
-    except (KeyError, IndexError) as e:
-        logger.error(f"❌ [OpenRouter] Parse error: {e} | {str(data)[:200]}")
-        raise ValueError("OpenRouter response had no image data.")
-
-    raise ValueError("OpenRouter response had no usable image.")
+        
+        # Cloudflare direct binary bytes (image) return karta hai
+        return resp.content
 
 
-async def _t2i_openrouter(prompt: str, ratio: str) -> Optional[bytes]:
+async def _t2i_cloudflare(prompt: str, ratio: str) -> Optional[bytes]:
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
-            logger.info(f"🎨 [OpenRouter] Attempt {attempt}/{_MAX_RETRIES} | ratio={ratio}")
-            img = await _openrouter_once(prompt, ratio)
+            logger.info(f"🎨 [Cloudflare] Attempt {attempt}/{_MAX_RETRIES} | ratio={ratio}")
+            img = await _cloudflare_once(prompt, ratio)
             if _is_valid(img):
-                logger.info(f"✅ [OpenRouter] {len(img):,} bytes on attempt {attempt}")
+                logger.info(f"✅ [Cloudflare] {len(img):,} bytes on attempt {attempt}")
                 return img
-            logger.warning(f"⚠️ [OpenRouter] Attempt {attempt}: image too small")
+            logger.warning(f"⚠️ [Cloudflare] Attempt {attempt}: image too small or invalid")
         except Exception as e:
-            logger.warning(f"⚠️ [OpenRouter] Attempt {attempt} error: {e}")
+            logger.warning(f"⚠️ [Cloudflare] Attempt {attempt} error: {e}")
 
         if attempt < _MAX_RETRIES:
             await asyncio.sleep(_RETRY_DELAY)
 
-    logger.error("❌ [OpenRouter] All attempts failed — moving to Pollinations.")
+    logger.error("❌ [Cloudflare] All attempts failed — moving to Pollinations.")
     return None
 
 
-# ── Model 2: Pollinations.ai ───────────────────────────────────────────────────
+# ── Model 2: Pollinations.ai (Fallback) ────────────────────────────────────────
 
 async def _pollinations_once(prompt: str, ratio: str) -> Optional[bytes]:
     w, h     = _get_dims(ratio)
@@ -194,10 +189,12 @@ async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optiona
     w, h = _get_dims(ratio)
     logger.info(f"🎨 [Image Pipeline] VIRAL_PIN | ratio={ratio} ({w}x{h}) | 4K quality")
 
-    image_bytes = await _t2i_openrouter(visual_prompt, ratio)
+    # PRIMARY: Cloudflare
+    image_bytes = await _t2i_cloudflare(visual_prompt, ratio)
 
+    # FALLBACK: Pollinations
     if not image_bytes:
-        logger.info("🔄 [Image Pipeline] OpenRouter exhausted — trying Pollinations...")
+        logger.info("🔄 [Image Pipeline] Cloudflare exhausted — trying Pollinations...")
         image_bytes = await _t2i_pollinations(visual_prompt, ratio)
 
     if not image_bytes:
