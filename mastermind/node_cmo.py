@@ -112,52 +112,67 @@ _ACCOUNT_PROFILES = {
 # explanatory text BEFORE the JSON object, breaking _extract_json parsing.
 # Solution: Gemini gets system_instruction via config param only (no duplication).
 # Cerebras gets system role message as before.
+# ── Hardcoded last-resort fallbacks (Generic & Adaptive) ──────────────────────
+HARDCODED_FALLBACK: dict = {
+    "account_1": {
+        "pin_type":     "VIRAL_PIN",
+        "strategy":     "Aesthetic Lifestyle Pivot",
+        "vibe":         "Warm, inviting, and highly curated minimalist lifestyle aesthetic",
+        "title":        "Aesthetic Inspiration That Will Completely Transform Your Vibe ✨",
+        "description":  "There's something incredibly satisfying about a space that feels intentional. Curated details, perfect lighting, and an atmosphere that just radiates calm. Elevate your everyday aesthetic with these timeless visual details.",
+        "tags":         ["AestheticVibe", "LifestyleInspo", "MinimalistStyle", "CozyAesthetic", "PinterestAesthetic"],
+        "visual_prompt": "highly curated aesthetic lifestyle scene, warm golden hour ambient lighting, soft focus, visually satisfying composition, minimalist decor, hyperrealistic, 4K ultra HD, photorealistic",
+        "ratio":        "9:16",
+    },
+    "account_2": {
+        "pin_type":     "VIRAL_PIN",
+        "strategy":     "Premium Tech Pivot",
+        "vibe":         "Sleek, futuristic, and ultra-premium modern workspace aesthetic",
+        "title":        "The Ultimate Modern Aesthetic That Feels Next-Level 🚀",
+        "description":  "When design meets function, magic happens. It’s not just about what you use, it’s about the environment you create. Clean lines, ambient glows, and a setup that instantly boosts your focus and creativity. Total visual satisfaction.",
+        "tags":         ["ModernAesthetic", "TechInspo", "CleanSetup", "FuturisticVibe", "WorkspaceGoals"],
+        "visual_prompt": "ultra-premium modern setup, clean lines, ambient cinematic lighting, sleek matte textures, high-end design, deeply satisfying composition, hyperrealistic, 4K ultra HD, photorealistic",
+        "ratio":        "9:16",
+    },
+}
+
 # ── Pin type prompts ───────────────────────────────────────────────────────────
 def _build_viral_prompt(profile: str, metrics_str: str, ratio: str) -> str:
     ratio_cfg = _RATIOS[ratio]
-    return f"""TASK: Generate a VIRAL_PIN strategy optimized for maximum Pinterest saves, impressions, and profile follows.
+    # Inject the keyword dictionary as a JSON string so the AI can read it
+    keywords_str = json.dumps(KEYWORDS_BY_NICHE, indent=2)
+    
+    return f"""TASK: Generate a VIRAL_PIN strategy optimized for massive Pinterest impressions and saves.
 
 ━━━ ACCOUNT PROFILE ━━━
 {profile}
 
-━━━ PERFORMANCE ANALYTICS (last 30 days) ━━━
-{metrics_str}
+━━━ MASTER KEYWORD DICTIONARY ━━━
+{keywords_str}
 
 ━━━ PIN SPECIFICATIONS ━━━
 Image ratio: {ratio_cfg['label']} ({ratio_cfg['w']}×{ratio_cfg['h']}px)
 Pin type: VIRAL_PIN — pure aesthetic content, zero commerce signals
 
-━━━ CREATIVE DIRECTION ━━━
-- Title: Lead with the primary Pinterest keyword. Make it feel like a discovery, not an ad.
-  Use power words: "That Will...", "You Need To See...", "The Most...", "That Actually Works"
-  Trigger emotions: curiosity, aspiration, FOMO, calm/ASMR satisfaction.
-- Description: Write lifestyle copy that makes the viewer feel something.
-  Paint a sensory scene. Use "you" to pull them in. No product names. No prices. No CTAs.
-  Make them SAVE it because it resonates, not because they were told to.
-- Visual prompt: Think like a top-tier AI image director.
-  Specify: subject, surface/material, lighting style, color palette, camera angle, mood, texture details.
-  Every keyword should add visual information. Avoid generic filler words.
-- Tags: Think like a Pinterest SEO strategist. Mix broad discovery tags with niche-specific ones.
-  Choose tags the target audience actually searches and follows.
-
-━━━ ANALYTICS STRATEGY HINT ━━━
-Use the analytics profile to adapt strategy:
-- "Stagnant" → pivot the aesthetic dramatically, try a different sub-niche angle
-- "High-Impression / Low-Engagement" → the visuals attract but content doesn't resonate; sharpen the emotional hook in title + description
-- "High-Engagement / Conversion-Ready" → double down on what's working; push aspirational elements harder
+━━━ CREATIVE DIRECTION (THE HUMAN TOUCH) ━━━
+1. NICHE ISOLATION: Look at the 'Available Niches' in the account profile. Select EXACTLY ONE niche to focus on for this pin (e.g., ONLY 'cozy' or ONLY 'wfh').
+2. VIBE MATCHING: Look up the selected niche in the MASTER KEYWORD DICTIONARY. Use those exact phrases to deeply understand the visual aesthetic people are searching for.
+3. VISUAL ART DIRECTION: Act as a high-end Art Director. Write a highly specific Text-to-Image prompt that perfectly captures the keywords of that chosen niche. 
+   - No generic backgrounds! A 'phone' keyword needs a lifestyle hand/desk context. An 'organize' keyword needs satisfying acrylics/symmetry.
+   - Do NOT mix themes. 
+4. COPYWRITING: Write like an elite lifestyle influencer. Evoke emotion. Use words like 'obsessed', 'satisfying', 'transform', 'vibe'. No robotic corporate speak.
 
 ━━━ OUTPUT FORMAT (JSON only — no other text) ━━━
 {{
   "pin_type": "VIRAL_PIN",
-  "strategy": "Visual Pivot",
-  "vibe": "<1-line creative direction for the image mood, max 80 chars>",
-  "title": "<SEO-optimized title, primary keyword first, emotionally compelling, max 90 chars>",
-  "description": "<sensory lifestyle copy, 2-4 sentences, NO product names/CTAs/prices, max 380 chars>",
-  "tags": ["<Tag1>", "<Tag2>", "<Tag3>", "<Tag4>", "<Tag5>"],
-  "visual_prompt": "<comma-separated T2I keywords, highly specific, max 180 chars, ends with: 4K ultra HD, photorealistic>",
+  "strategy": "Niche-Targeted Visual Pivot",
+  "vibe": "<1-line creative direction capturing the essence of the selected niche keywords, max 80 chars>",
+  "title": "<SEO-optimized human-sounding viral title, curiosity-driven, max 90 chars>",
+  "description": "<sensory, relatable lifestyle copy making them want to save this pin, NO prices/CTAs, max 380 chars>",
+  "tags": ["<NicheTag1>", "<NicheTag2>", "<NicheTag3>", "<NicheTag4>", "<NicheTag5>"],
+  "visual_prompt": "<comma-separated T2I keywords based on the dictionary, hyper-specific to the isolated niche, no text overlays, ends with: 4K ultra HD, photorealistic, highly detailed>",
   "ratio": "{ratio}"
 }}"""
-
 
 def _build_affiliate_prompt(profile: str, metrics_str: str, ratio: str) -> str:
     ratio_cfg = _RATIOS[ratio]
