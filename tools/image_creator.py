@@ -103,8 +103,7 @@ async def _cloudflare_once(prompt: str, ratio: str) -> Optional[bytes]:
         raise RuntimeError("CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN not configured.")
 
     w, h     = _get_dims(ratio)
-    # Cloudflare ka Schnell model aspectRatio ya direct dims param support nahi karta hamesha, 
-    # isliye hum usko prompt me hi dimensions bata dete hain.
+    # Flux-1-schnell needs resolution context in prompt
     enriched = _enrich_prompt(f"{prompt}, portrait {w}x{h} size")
 
     url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/{CLOUDFLARE_IMAGE_MODEL}"
@@ -123,8 +122,18 @@ async def _cloudflare_once(prompt: str, ratio: str) -> Optional[bytes]:
         resp = await client.post(url, headers=headers, json=payload)
         resp.raise_for_status()
         
-        # Cloudflare direct binary bytes (image) return karta hai
-        return resp.content
+        # FIX: Extract base64 image string from Cloudflare's JSON response
+        if "application/json" in resp.headers.get("content-type", "").lower():
+            data = resp.json()
+            b64_str = data.get("result", {}).get("image", "")
+            if b64_str:
+                return base64.b64decode(b64_str)
+            else:
+                logger.error(f"❌ [Cloudflare] No image data found in JSON response: {str(data)[:200]}")
+                return None
+        else:
+            # Fallback if it returns direct bytes (unlikely but safe)
+            return resp.content
 
 
 async def _t2i_cloudflare(prompt: str, ratio: str) -> Optional[bytes]:
