@@ -1,3 +1,4 @@
+import os
 import asyncio
 import httpx
 import logging
@@ -6,6 +7,7 @@ from config import RAPIDAPI_KEY, GROQ_API_KEY, GROQ_VISION_MODEL
 
 logger = logging.getLogger(__name__)
 
+# ── API CONFIGURATIONS ────────────────────────────────────────
 SEARCH_URL  = "https://real-time-amazon-data.p.rapidapi.com/search"
 DETAILS_URL = "https://real-time-amazon-data.p.rapidapi.com/product-details"
 
@@ -14,60 +16,17 @@ HEADERS = {
     "x-rapidapi-key":  RAPIDAPI_KEY,
 }
 
-KEYWORDS_BY_NICHE = {
-    "home": [
-        "aesthetic room decor", "amazon home finds", "nordic home decor",
-        "led room lighting aesthetic", "minimalist home accessories", "cute room decor"
-    ],
-    "kitchen": [
-        "smart kitchen gadgets", "viral kitchen tools", "aesthetic kitchen accessories",
-        "time saving kitchen hacks", "kitchen organization tools", "pastel kitchen gadgets"
-    ],
-    "cozy": [
-        "cozy bedroom aesthetic", "warm night light", "fluffy room decor",
-        "reading nook accessories", "ambient room lighting", "kawaii room decor"
-    ],
-    "gadgets": [
-        "cool home gadgets viral", "problem solving gadgets", "smart home tech finds",
-        "tiktok made me buy it home", "lazy home gadgets", "cleaning gadgets hacks"
-    ],
-    "organize": [
-        "aesthetic storage box", "acrylic makeup organizer", "closet organization tools",
-        "cable management aesthetic", "bathroom space saver", "fridge organization containers"
-    ],
-    "tech": [
-        "aesthetic desk setup", "gaming setup accessories", "cool tech gadgets",
-        "cyberpunk desk accessories", "futuristic tech gadgets", "laptop accessories aesthetic"
-    ],
-    "budget": [
-        "cool gadgets under 10", "cheap tech finds", "useful gadgets under 20",
-        "mini tech gadgets", "budget gaming accessories", "pocket gadgets"
-    ],
-    "phone": [
-        "cute iphone cases", "magsafe accessories aesthetic", "viral phone charms",
-        "phone camera lens kit", "aesthetic phone stand", "power bank aesthetic"
-    ],
-    "smarthome": [
-        "smart rgb led strip", "smart home automation", "voice control lights",
-        "smart desk lamp", "galaxy projector light", "smart sensor gadgets"
-    ],
-    "wfh": [
-        "work from home desk setup", "ergonomic desk accessories", "ipad accessories aesthetic",
-        "productivity gadgets", "wireless mechanical keyboard", "desk mat aesthetic"
-    ]
-}
+# ── GITHUB FALLBACK SETUP ──────────────────────────────────────
+# Apni config me ya environment variable me GitHub PAT token daal lena
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "ghp_tumhara_token_yahan_daalo")
+GITHUB_VISION_MODEL = "Llama-3.2-11B-Vision-Instruct"
 
-DEFAULT_KEYWORDS = ["tiktok viral finds", "aesthetic must haves", "cool gadgets"]
-
-# ── Rate limiting for Groq Vision API ────────────────────────────────────────
-# Groq vision model free tier: 30 RPM, 7,000 tokens/min
-# Strategy: 5s gap between consecutive calls + exponential backoff on 429
-_VISION_INTER_CALL_DELAY = 5    # seconds between products (safe = 12 calls/min max)
-_VISION_RETRY_DELAYS     = [12, 24, 48]  # seconds to wait on successive 429s
-
+# ── RATE LIMITING ──────────────────────────────────────────────
+_VISION_INTER_CALL_DELAY = 10    # 10s saans lene ka time har product ke baad
+_VISION_RETRY_DELAYS     = [15, 30, 45]  # Agar 429 aaya toh aaram se ruko
 
 async def get_product_photos(asin: str) -> list:
-    """ASIN ka use karke product ki saari images fetch karta hai."""
+    """ASIN se gallery fetch karo."""
     logger.info(f"🔍 Fetching photo gallery for ASIN: {asin}...")
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -78,16 +37,17 @@ async def get_product_photos(asin: str) -> list:
         logger.error(f"❌ Failed to get details for {asin}: {e}")
         return []
 
-
 async def get_best_lifestyle_image(image_urls: list) -> str:
     """
-    Groq Vision LLM ko use karke sabse aesthetic Pinterest-worthy image select karta hai.
-    Rate limiting: exponential backoff on 429 — retries up to 3 times.
+    Two-Tier AI Agent: Groq (Primary) -> GitHub (Fallback) -> Default Image
     """
     if not image_urls:
         return ""
     if len(image_urls) == 1:
         return image_urls[0]
+
+    # Token bachao aur raw image hatao
+    safe_images = image_urls[1:6] if len(image_urls) > 1 else image_urls
 
     logger.info("👁️ [Vision Agent] Analyzing images for best Pinterest vibe...")
 
@@ -103,50 +63,93 @@ async def get_best_lifestyle_image(image_urls: list) -> str:
             )
         }
     ]
-    for url in image_urls[:5]:
+    
+    for url in safe_images:
         content_payload.append({"type": "image_url", "image_url": {"url": url}})
 
-    payload = {
+    # ==========================================
+    # 1. PRIMARY: GROQ API LOOP
+    # ==========================================
+    groq_payload = {
         "model": GROQ_VISION_MODEL,
         "messages": [{"role": "user", "content": content_payload}],
         "temperature": 0.1,
         "max_tokens": 100
     }
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
+    groq_headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
 
     for attempt, wait_sec in enumerate([0] + _VISION_RETRY_DELAYS):
         if wait_sec > 0:
-            logger.warning(f"⏳ [Vision Agent] 429 — sleeping {wait_sec}s before retry {attempt}/{len(_VISION_RETRY_DELAYS)}...")
+            logger.warning(f"⏳ [Vision Agent] 429 — sleeping {wait_sec}s before Groq retry...")
             await asyncio.sleep(wait_sec)
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 response = await client.post(
                     "https://api.groq.com/openai/v1/chat/completions",
-                    headers=headers, json=payload
+                    headers=groq_headers, json=groq_payload
                 )
 
             if response.status_code == 429:
-                logger.warning(f"⚠️ [Vision Agent] Groq 429 on attempt {attempt + 1}")
                 continue
 
             response.raise_for_status()
             best_url = response.json()["choices"][0]["message"]["content"].strip()
 
-            if best_url.startswith("http"):
-                logger.info("✅ [Vision Agent] Best aesthetic image selected!")
-                return best_url
+            # Strict Fake URL Validation
+            clean_ai_response = best_url.strip().strip('"').strip("'")
+            valid_url = next((img for img in safe_images if img in clean_ai_response), None)
+
+            if valid_url:
+                logger.info("✅ [Vision Agent] Groq selected a valid aesthetic image!")
+                return valid_url
             else:
-                logger.warning("⚠️ [Vision Agent] LLM returned non-URL. Falling back to first image.")
-                return image_urls[0]
+                logger.warning(f"⚠️ [Vision Agent] Groq Hallucinated ({clean_ai_response}). Triggering Fallback.")
+                break # Loop break kardo, seedha Fallback pe jao!
 
         except Exception as e:
-            logger.error(f"❌ [Vision Agent] Attempt {attempt + 1} failed: {e}")
+            logger.error(f"❌ [Vision Agent] Groq attempt {attempt + 1} failed: {e}")
             if attempt == len(_VISION_RETRY_DELAYS):
-                break
+                break # Retries khatam, Fallback pe jao
 
-    logger.warning("⚠️ [Vision Agent] All retries exhausted — using first image as fallback.")
-    return image_urls[0]
+    # ==========================================
+    # 2. FALLBACK: GITHUB MODELS (Azure)
+    # ==========================================
+    logger.warning("🔄 [Vision Agent] Groq exhausted/hallucinated. Switching to GitHub Models...")
+    
+    gh_payload = groq_payload.copy()
+    gh_payload["model"] = GITHUB_VISION_MODEL
+    gh_headers = {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            gh_response = await client.post(
+                "https://models.inference.ai.azure.com/chat/completions",
+                headers=gh_headers, json=gh_payload
+            )
+        gh_response.raise_for_status()
+        best_url_gh = gh_response.json()["choices"][0]["message"]["content"].strip()
+        
+        # GitHub ka URL bhi validate karenge (100% security)
+        clean_gh_response = best_url_gh.strip().strip('"').strip("'")
+        valid_url_gh = next((img for img in safe_images if img in clean_gh_response), None)
+        
+        if valid_url_gh:
+            logger.info("✅ [Vision Agent] GitHub Fallback selected a valid image!")
+            return valid_url_gh
+        else:
+             logger.error("❌ [Vision Agent] GitHub ALSO hallucinated. Giving up on AI.")
+            
+    except Exception as e:
+         logger.error(f"❌ [Vision Agent] GitHub Fallback failed: {e}")
 
+    # ==========================================
+    # 3. ULTIMATE FALLBACK (Zero Crashing)
+    # ==========================================
+    logger.warning("⚠️ [Vision Agent] Safe Fallback Triggered. Using original image.")
+    return safe_images[0]
 
 async def search_products(keyword: str = "", page: int = 1, max_results: int = 5, niche: str = "") -> list:
     """
