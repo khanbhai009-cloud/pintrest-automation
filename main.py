@@ -486,7 +486,10 @@ async def cmo_chat_endpoint(req: ChatMessage):
         reply = "Mastermind temporarily offline. Board meeting mein hoon — 2 minute mein wapas! 😄"
 
     return {"response": reply, "action": None}
-
+    
+@app.get("/api/ping")
+def ping():
+    return {"message": "pong"}
 
 if __name__ == "__main__":
     import uvicorn
