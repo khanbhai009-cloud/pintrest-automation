@@ -24,6 +24,51 @@ SEARCH_URL = "https://realtime-amazon-data.p.rapidapi.com/product-search"
 DETAILS_URL = "https://realtime-amazon-data.p.rapidapi.com/product-details"
 RAPIDAPI_HOST = "realtime-amazon-data.p.rapidapi.com"
 
+KEYWORDS_BY_NICHE = {
+    "home": [
+        "aesthetic room decor", "amazon home finds", "nordic home decor",
+        "led room lighting aesthetic", "minimalist home accessories", "cute room decor"
+    ],
+    "kitchen": [
+        "smart kitchen gadgets", "viral kitchen tools", "aesthetic kitchen accessories",
+        "time saving kitchen hacks", "kitchen organization tools", "pastel kitchen gadgets"
+    ],
+    "cozy": [
+        "cozy bedroom aesthetic", "warm night light", "fluffy room decor",
+        "reading nook accessories", "ambient room lighting", "kawaii room decor"
+    ],
+    "gadgets": [
+        "cool home gadgets viral", "problem solving gadgets", "smart home tech finds",
+        "tiktok made me buy it home", "lazy home gadgets", "cleaning gadgets hacks"
+    ],
+    "organize": [
+        "aesthetic storage box", "acrylic makeup organizer", "closet organization tools",
+        "cable management aesthetic", "bathroom space saver", "fridge organization containers"
+    ],
+    "tech": [
+        "aesthetic desk setup", "gaming setup accessories", "cool tech gadgets",
+        "cyberpunk desk accessories", "futuristic tech gadgets", "laptop accessories aesthetic"
+    ],
+    "budget": [
+        "cool gadgets under 10", "cheap tech finds", "useful gadgets under 20",
+        "mini tech gadgets", "budget gaming accessories", "pocket gadgets"
+    ],
+    "phone": [
+        "cute iphone cases", "magsafe accessories aesthetic", "viral phone charms",
+        "phone camera lens kit", "aesthetic phone stand", "power bank aesthetic"
+    ],
+    "smarthome": [
+        "smart rgb led strip", "smart home automation", "voice control lights",
+        "smart desk lamp", "galaxy projector light", "smart sensor gadgets"
+    ],
+    "wfh": [
+        "work from home desk setup", "ergonomic desk accessories", "ipad accessories aesthetic",
+        "productivity gadgets", "wireless mechanical keyboard", "desk mat aesthetic"
+    ]
+}
+
+DEFAULT_KEYWORDS = ["tiktok viral finds", "aesthetic must haves", "cool gadgets"]
+
 # ── VISION AI: BEST IMAGE SELECTOR ──
 async def get_best_lifestyle_image(image_urls: list) -> str:
     if not image_urls: return ""
