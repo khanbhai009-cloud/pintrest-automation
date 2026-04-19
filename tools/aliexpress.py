@@ -107,7 +107,9 @@ async def fetch_rapidapi(keyword):
             r = await client.get(SEARCH_URL, headers=headers, params={"keyword": keyword, "country": "us"})
             if r.status_code == 200:
                 data = r.json().get("data", [])
-                return data.get("products", []) if isinstance(data, dict) else data
+                products = data.get("products", []) if isinstance(data, dict) else data
+                # Guard: only return if it's actually a list
+                return products if isinstance(products, list) else None
     except: return None
 
 async def get_rapidapi_gallery(asin):
@@ -127,8 +129,20 @@ async def fetch_apify(keyword, max_results):
     try:
         async with httpx.AsyncClient(timeout=120) as client:
             res = await client.post(url, json=payload)
-            return res.json()
-    except: return None
+            # FIX: Guard against non-200 responses (e.g. 400 Bad Request returns an error dict,
+            # not a list — slicing a dict causes "unhashable type: 'slice'")
+            if res.status_code != 200:
+                logger.error(f"❌ Apify returned {res.status_code}: {res.text[:200]}")
+                return None
+            data = res.json()
+            # Guard: ensure the parsed body is a list, not an error-shaped dict
+            if not isinstance(data, list):
+                logger.error(f"❌ Apify response is not a list: {str(data)[:200]}")
+                return None
+            return data
+    except Exception as e:
+        logger.error(f"❌ Apify request exception: {e}")
+        return None
 
 # ── MAIN HYBRID FUNCTION ──
 async def search_products(keyword: str = "", niche: str = "", max_results: int = 5) -> list:
