@@ -1,19 +1,17 @@
 """
-agent.py — Pinteresto Mastermind Agent (Production v4)
+agent.py — Pinteresto Visual Agent (Production v5 — 100% Visual Strategy)
 
 LangGraph StateGraph architecture with:
-  - Explicit env loading (IMGBB_API_KEY, etc.)
-  - Full async httpx for all network I/O
-  - 70/30 routing: VIRAL_PIN (T2I, no affiliate) vs AFFILIATE_PIN (raw image, affiliate link kept)
-  - Triple-layer T2I: Gemini → OpenRouter FLUX → Pollinations.ai
+  - 100% VIRAL_PIN — no affiliate links, no product sourcing
+  - CMO strategy injected: visual_style, visual_prompt, title, description, tags
+  - generate_pin_image() for every post (OpenRouter FLUX -> Pollinations fallback)
   - ImgBB mandatory hosting gateway before every Pinterest webhook call
-  - Mandatory stock refill guard before publishing
 
-run_agent() accepts an optional `cmo_strategy` dict from the Mastermind graph.
-When provided, pin_type, title, description, tags, and visual_prompt are read
-directly from it — no separate copywriting node needed.
+run_agent() accepts cmo_strategy dict from the Mastermind graph.
+analyze_niche_stock and fetch_aliexpress_products are kept in code but NOT registered
+as agent tools — they will not be called until re-enabled.
 
-CMO Mastermind: Cerebras (qwen-3-235b-a22b-instruct-2507)
+CMO Mastermind: Gemini 2.5 Flash -> Cerebras fallback
 Execution Agent: Groq (llama-3.3-70b-versatile) with Cerebras fallback
 """
 
@@ -189,17 +187,16 @@ async def fetch_aliexpress_products(niche: str, keyword: str = "") -> dict:
 
 
 @tool
-async def publish_next_pin(niche: str) -> dict:
+async def publish_next_pin(visual_style: str) -> dict:
     """
-    Publish the next PENDING product for the given niche to Pinterest.
+    Generate and publish a 100% VIRAL_PIN for the given visual style.
 
-    Routing is determined by a 70/30 random split (from the CMO strategy):
-      VIRAL_PIN    (70%) — T2I aesthetic image, affiliate link STRIPPED.
-      AFFILIATE_PIN (30%) — Raw product image used directly, affiliate link KEPT.
+    No product sourcing, no affiliate links — purely AI-generated aesthetic imagery.
+    CMO-generated title, description, tags, visual_prompt, and ratio are read from
+    the injected CURRENT_CMO_STRATEGY global.
 
-    CMO-generated title, description, tags, and visual_prompt are read from the
-    injected CURRENT_CMO_STRATEGY global. Google Sheets mark_as_posted is always
-    called on success to preserve the update logic.
+    Args:
+        visual_style: one of green_minimalist | sunset_landscape | cozy_architecture | cinematic_retro
     """
     global CURRENT_TRIGGER, CURRENT_CMO_STRATEGY
 
@@ -209,82 +206,50 @@ async def publish_next_pin(niche: str) -> dict:
         else "Account2_Tech"
     )
 
-    # ── 1. Fetch pending product ──────────────────────────────────────────────
-    pending = get_pending_products(limit=1, allowed_niches=[niche])
-    if not pending:
-        return {"success": False, "reason": f"No PENDING products for niche '{niche}'"}
-    product = pending[0]
+    # ── 1. Read CMO strategy ─────────────────────────────────────────────────
+    cmo           = CURRENT_CMO_STRATEGY or {}
+    visual_prompt = str(cmo.get("visual_prompt", ""))
+    ratio         = cmo.get("ratio", "9:16")
+    title         = str(cmo.get("title", "Aesthetic Inspiration"))[:100]
+    desc          = str(cmo.get("description", ""))
+    tags          = list(cmo.get("tags", []))
 
-    product_name   = product.get("product_name", "Amazing Find")
-    raw_img_url    = product.get("image_url", "")
-    affiliate_link = product.get("affiliate_link") or product.get("product_url", "")
+    if not visual_prompt:
+        visual_prompt = (
+            f"aesthetic {visual_style.replace('_', ' ')} photography, "
+            "ultra-realistic, 4K ultra HD, photorealistic, highly detailed"
+        )
 
-    # ── 2. Read CMO strategy (pin_type + copy) ───────────────────────────────
-    cmo = CURRENT_CMO_STRATEGY or {}
-    pin_type      = cmo.get("pin_type", "VIRAL_PIN")
-    visual_prompt = cmo.get("visual_prompt", "")
+    logger.info(
+        f"[{target_account}] VIRAL_PIN | style={visual_style} | ratio={ratio} | "
+        f"prompt={visual_prompt[:60]}..."
+    )
 
-    # Use CMO-generated copy when available; fall back to groq_ai generator
-    if cmo.get("title"):
-        title = str(cmo["title"])[:100]
-        desc  = str(cmo.get("description", ""))
-        tags  = list(cmo.get("tags", []))
-    else:
-        try:
-            copy  = generate_pin_copy(product)
-            title = copy.get("title", product_name)[:100]
-            desc  = copy.get("description", "")
-            tags  = copy.get("tags", [])
-        except Exception as e:
-            logger.error(f"❌ SEO copy generation failed: {e}")
-            title = product_name[:100]
-            desc  = ""
-            tags  = []
+    # ── 2. Generate AI image (OpenRouter -> Pollinations fallback) ────────────
+    imgbb_url = await generate_pin_image(visual_prompt=visual_prompt, ratio=ratio)
+    if not imgbb_url:
+        return {"success": False, "reason": "Image generation failed — all layers exhausted."}
 
-    # ── 3. Route by pin_type — 70% VIRAL / 30% AFFILIATE ────────────────────
-    if pin_type == "AFFILIATE_PIN":
-        logger.info(f"💰 [{target_account}] AFFILIATE_PIN — using raw product image, keeping affiliate link.")
-        # Upload raw product image to ImgBB for a stable Pinterest-safe URL
-        imgbb_url = await upload_raw_image(raw_img_url) if raw_img_url else None
-        if not imgbb_url:
-            return {"success": False, "reason": "AFFILIATE_PIN: raw product image unavailable or upload failed."}
-    else:
-        # VIRAL_PIN — generate T2I aesthetic image, strip affiliate link
-        logger.info(f"🎨 [{target_account}] VIRAL_PIN — generating T2I image, stripping affiliate link.")
-        affiliate_link = ""
-        ratio = cmo.get("ratio", "9:16")
-        prompt = visual_prompt or f"aesthetic Pinterest pin for {niche}, ultra-realistic, 4K ultra HD"
-        imgbb_url = await generate_pin_image(visual_prompt=prompt, ratio=ratio)
-        if not imgbb_url:
-            # Last-resort fallback: upload raw product image
-            logger.warning("⚠️ [Publish] T2I failed — falling back to raw product image (no affiliate link).")
-            imgbb_url = await upload_raw_image(raw_img_url) if raw_img_url else None
-        if not imgbb_url:
-            return {"success": False, "reason": "VIRAL_PIN: image generation and all fallbacks failed."}
-
-    # ── 4. Post to Pinterest via Make.com webhook ─────────────────────────────
+    # ── 3. Post to Pinterest via Make.com webhook — no affiliate link ─────────
     try:
         success = await post_to_pinterest(
             image_url=imgbb_url,
             title=title,
             description=desc,
-            link=affiliate_link,
+            link="",          # No affiliate links — 100% visual strategy
             tags=tags,
-            niche=niche,
+            niche=visual_style,
             target_account=target_account,
         )
     except Exception as e:
         return {"success": False, "reason": f"Webhook error: {e}"}
 
-    # ── 5. Mark as posted (Google Sheets update) ──────────────────────────────
     if success:
-        mark_as_posted(product_name)
         return {
-            "success":   True,
-            "product":   product_name,
-            "niche":     niche,
-            "pin_type":  pin_type,
-            "image_url": imgbb_url,
+            "success":      True,
+            "visual_style": visual_style,
+            "pin_type":     "VIRAL_PIN",
+            "image_url":    imgbb_url,
         }
 
     return {"success": False, "reason": "Webhook returned failure status."}
@@ -294,7 +259,9 @@ async def publish_next_pin(niche: str) -> dict:
 # Tool Registry & LLM
 # ─────────────────────────────────────────────────────────────────────────────
 
-ALL_TOOLS = [fill_missing_niches, analyze_niche_stock, fetch_aliexpress_products, publish_next_pin]
+# analyze_niche_stock and fetch_aliexpress_products are kept in code above
+# but NOT registered here — product sourcing disabled until further notice.
+ALL_TOOLS = [fill_missing_niches, publish_next_pin]
 
 
 def _build_llm():
@@ -329,101 +296,69 @@ def _build_system_prompt(cmo_strategy: Optional[dict] = None) -> str:
     If `cmo_strategy` is None (standalone run), keep an open-ended prompt.
     """
     if cmo_strategy:
-        pin_type      = cmo_strategy.get("pin_type", "VIRAL_PIN")
-        strategy      = cmo_strategy.get("strategy", "Visual Pivot")
+        visual_style  = cmo_strategy.get("visual_style", "green_minimalist")
+        strategy      = cmo_strategy.get("strategy", "Visual Style Pivot")
         vibe          = cmo_strategy.get("vibe", "")
         title         = cmo_strategy.get("title", "")
         description   = cmo_strategy.get("description", "")
         tags          = cmo_strategy.get("tags", [])
-        visual_prompt = cmo_strategy.get("visual_prompt", "aesthetic product photo")
+        visual_prompt = cmo_strategy.get("visual_prompt", "")
+        ratio         = cmo_strategy.get("ratio", "9:16")
 
         cmo_brief = f"""
-⚡ CMO MASTERMIND BRIEF — FOLLOW THIS EXACTLY ⚡
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  DECISION ENGINE : Cerebras qwen-3-235b-a22b-instruct-2507
-  PIN TYPE        : {pin_type}
-  STRATEGY        : {strategy}
-  VIBE            : {vibe}
-  TITLE           : {title}
-  DESCRIPTION     : {description}
-  TAGS            : {tags}
-  VISUAL PROMPT   : {visual_prompt}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-The CMO Mastermind (Cerebras) has already decided the pin type via 70/30 routing.
-publish_next_pin() reads the full CMO strategy automatically — just pass the niche.
+CMO MASTERMIND BRIEF — FOLLOW THIS EXACTLY
+  PIN TYPE      : VIRAL_PIN (100% visual — no products, no affiliate links)
+  STRATEGY      : {strategy}
+  VISUAL STYLE  : {visual_style}
+  VIBE          : {vibe}
+  TITLE         : {title}
+  DESCRIPTION   : {description}
+  TAGS          : {tags}
+  VISUAL PROMPT : {visual_prompt}
+  RATIO         : {ratio}
+publish_next_pin() reads the full CMO strategy automatically — pass the visual_style above.
 """
     else:
+        visual_style = "green_minimalist"
         cmo_brief = """
-⚡ CMO BRIEF — STANDALONE MODE ⚡
-No Mastermind strategy injected. publish_next_pin() will default to VIRAL_PIN.
+STANDALONE MODE — No CMO strategy injected.
+publish_next_pin() will use a default green_minimalist visual style.
 """
 
-    return f"""You are PINTERESTO — an autonomous Pinterest affiliate marketing agent.
+    return f"""You are PINTERESTO — an autonomous Pinterest visual content agent.
 {cmo_brief}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SYSTEM ARCHITECTURE (current, v4):
-  CMO Mastermind : Cerebras  (qwen-3-235b-a22b-instruct-2507) — decides pin strategy
-  Execution LLM  : Groq      (llama-3.3-70b-versatile) + Cerebras fallback
-  Routing        : 70% VIRAL_PIN | 30% AFFILIATE_PIN (CMO-decided, scheduler-enforced)
-  Scheduler      : 10 pins/day — 5 per account — EST 7:30 AM → 7:30 PM window
-  Trigger format : "scheduled-account1-VIRAL_PIN" or "scheduled-account2-AFFILIATE_PIN"
+SYSTEM ARCHITECTURE (v5 — 100% Visual Strategy):
+  CMO Mastermind  : Gemini 2.5 Flash -> Cerebras fallback — picks best Visual Style from analytics
+  Execution LLM   : Groq (llama-3.3-70b-versatile) + Cerebras fallback
+  Pin Type        : ALWAYS VIRAL_PIN — pure AI-generated aesthetic imagery
+  No products, no affiliate links, no Google Sheets product dependency.
+  Scheduler       : 10 pins/day — 5 per account — EST 7:30 AM to 7:30 PM window
 
-PINTEREST ACCOUNTS:
-  Account 1 — HomeDecor  | Niches: home, kitchen, cozy, gadgets, organize
-  Account 2 — Tech       | Niches: tech, budget, phone, smarthome, wfh
+VISUAL STYLES (CMO picks one based on analytics):
+  green_minimalist  — Lush plants, white walls, natural light, Scandinavian-biophilic
+  sunset_landscape  — Golden hour, dramatic skies, open horizons, cinematic nature
+  cozy_architecture — Warm wooden interiors, stone fireplaces, hygge atmosphere
+  cinematic_retro   — 35mm film grain, vintage color grading, nostalgic urban scenes
 
-IMAGE GENERATION (triple-layer fallback, each model gets 2 attempts, 3s retry delay):
-  Layer 1 — Gemini       (gemini-2.5-flash-preview-image-generation) | timeout=180s
-  Layer 2 — OpenRouter   (black-forest-labs/flux-1.1-pro)            | timeout=180s
-  Layer 3 — Pollinations (free, no key, URL-based)                   | timeout=180s
-  Minimum valid image: 5,000 bytes — smaller = treated as failure
+IMAGE GENERATION (dual-layer fallback):
+  Layer 1 — OpenRouter FLUX (black-forest-labs/flux.2-pro) | timeout=180s
+  Layer 2 — Pollinations.ai (free, URL-based)              | timeout=180s
+  Hosted on ImgBB before every Pinterest post.
 
-DATA FLOW:
-  Products DB    : Google Sheets ("Approved Deals" sheet)
-  Image hosting  : ImgBB (mandatory gateway before every Pinterest post)
-  Post delivery  : Make.com webhooks → Pinterest API
-  Analytics      : Google Sheets (Analytics_Log / Analytics_logs2)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+You MUST follow this EXACT protocol on every run:
 
-PIN ROUTING RULES:
-  • VIRAL_PIN    (70%) — Generates T2I aesthetic image (Gemini → OpenRouter → Pollinations).
-                         Affiliate link is STRIPPED. Goal: reach, saves, impressions.
-  • AFFILIATE_PIN (30%) — Uses raw product image URL directly (no AI generation).
-                          Affiliate link KEPT. Goal: outbound clicks, conversions.
+STEP 1 → CALL publish_next_pin(visual_style="{visual_style}")
+  - Reads all CMO content (title, description, tags, visual_prompt, ratio) automatically.
+  - Generates AI image via OpenRouter FLUX -> Pollinations fallback.
+  - Uploads to ImgBB. Posts to Pinterest via Make.com webhook. No affiliate link.
 
-You MUST follow this EXACT 5-step protocol on every run:
-
-STEP 1 → CALL fill_missing_niches()
-  - Purpose: Classify any products in the Sheet that have no niche assigned yet.
-
-STEP 2 → CALL analyze_niche_stock()
-  - Purpose: Select the target niche and check stock levels for the active account.
-  - Note the returned values: selected_niche and needs_fetching.
-
-STEP 3 → MANDATORY STOCK GATE
-  - IF needs_fetching == True: MUST call fetch_aliexpress_products(niche="<selected_niche>")
-  - Do NOT skip this step. Never proceed to STEP 4 with zero stock.
-  - IF needs_fetching == False: Proceed directly to STEP 4.
-
-STEP 4 → CALL publish_next_pin(niche="<selected_niche>")
-  The function automatically:
-    - Reads pin_type, title, description, tags, visual_prompt from injected CMO strategy.
-    - VIRAL_PIN : Runs triple-layer T2I (Gemini → OpenRouter FLUX → Pollinations), strips affiliate.
-    - AFFILIATE_PIN : Uses raw product image (no AI generation), keeps affiliate link.
-    - Uploads final image to ImgBB for a stable URL.
-    - Posts to Pinterest via Make.com webhook.
-    - Calls mark_as_posted() in Google Sheets on success.
-
-STEP 5 → END
+STEP 2 → END
   Output your final report in EXACTLY this format:
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  NICHES FILLED  : [X products updated]
-  TARGET NICHE   : "[selected_niche]"
-  PIN TYPE       : "[VIRAL_PIN / AFFILIATE_PIN]"
-  STOCK REFILLED : [Yes — X products fetched] OR [No — stock sufficient]
-  POSTED         : "[product title]"
-  IMAGE SOURCE   : [Gemini / OpenRouter-FLUX / Pollinations / Raw-Product-Image]
-  STATUS         : ✅ Success OR ❌ Failed — [reason]
+  VISUAL STYLE   : "[visual_style]"
+  PIN TYPE       : "VIRAL_PIN"
+  IMAGE SOURCE   : [OpenRouter-FLUX / Pollinations]
+  STATUS         : Success OR Failed — [reason]
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
 
 

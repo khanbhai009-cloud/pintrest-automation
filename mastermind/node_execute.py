@@ -1,115 +1,107 @@
 """
-mastermind/node_execute.py — Final Version (Pollinations + Puter Fallback)
-Strict isolation, link stripping for Viral-Bait, and direct public URLs.
+mastermind/node_execute.py — 100% Visual Strategy
+
+Every post is a VIRAL_PIN:
+- No product sourcing, no affiliate links, no Google Sheets product dependency.
+- CMO strategy provides: visual_prompt, title, description, tags, ratio, visual_style.
+- generate_pin_image() creates the image (OpenRouter -> Pollinations fallback).
+- Image is uploaded to ImgBB, then posted to Pinterest via Make.com webhook.
 """
 import asyncio
 import logging
-import os
-import uuid
-import urllib.parse
 from mastermind.state import MastermindState
-from config import POLLINATIONS_MODEL
-from tools.google_drive import get_pending_products, mark_as_posted
+from tools.image_creator import generate_pin_image
 from tools.make_webhook import post_to_pinterest
 
 logger = logging.getLogger(__name__)
 
-# ── Per-account routing ──────────────────────────
+# ── Per-account routing ────────────────────────────────────────────────────────
 _ACCOUNT_CONFIG = {
-    "account_1": { "name": "Account1_HomeDecor", "niches": ["home", "kitchen", "cozy", "gadgets", "organize"] },
-    "account_2": { "name": "Account2_Tech", "niches": ["tech", "budget", "phone", "smarthome", "wfh"] },
+    "account_1": {"name": "Account1_HomeDecor", "default_niche": "home"},
+    "account_2": {"name": "Account2_Tech",      "default_niche": "tech"},
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# AI Image Orchestrator (Primary: Pollinations | Fallback: Puter Logic)
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Execution Pipeline ─────────────────────────────────────────────────────────
 
-async def _generate_ai_image(strategy_name: str, cmo_strategy: dict, account_label: str) -> str | None:
-    """Returns a DIRECT public URL for Pinterest to fetch."""
-    image_prompt_direction = (cmo_strategy.get("image_prompts") or ["aesthetic Pinterest pin"])[0]
-    vibe = cmo_strategy.get("vibe", "aspirational")
-    
-    # Clean prompt for URL
-    clean_prompt = f"{image_prompt_direction}, {vibe}, high-resolution, pinterest aesthetic, 8k"
-    encoded_prompt = urllib.parse.quote(clean_prompt)
-    seed = uuid.uuid4().int % 10000
-
-    # 1. Primary: Pollinations.ai (Fastest & Public)
-    pollinations_url = f"https://pollinations.ai/p/{encoded_prompt}?width=1024&height=1792&nologo=true&model={POLLINATIONS_MODEL}&seed={seed}"
-    
-    # 2. Fallback Logic: Puter/Imagen Style (If needed in future)
-    # Note: For now, we return Pollinations because Pinterest needs a direct public URL.
-    # If Pollinations failed, the pipeline automatically uses the Sheet's raw image_url.
-    
-    logger.info(f"🎨 [{account_label}] Strategy: {strategy_name} | AI URL: {pollinations_url[:60]}...")
-    return pollinations_url
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Execution Pipeline
-# ─────────────────────────────────────────────────────────────────────────────
-
-async def _execute_for_account(account_key: str, seo_copy: dict, cmo_strategy: dict) -> dict:
-    cfg = _ACCOUNT_CONFIG[account_key]
+async def _execute_for_account(account_key: str, cmo_strategy: dict) -> dict:
+    cfg          = _ACCOUNT_CONFIG[account_key]
     account_name = cfg["name"]
-    strategy_name = cmo_strategy.get("strategy", "")
+    visual_style = cmo_strategy.get("visual_style", "green_minimalist")
+    ratio        = cmo_strategy.get("ratio", "9:16")
 
-    # 1. Product Fetch
-    try:
-        products = get_pending_products(limit=1, allowed_niches=cfg["niches"])
-        if not products: return {"success": False, "message": "No products.", "account": account_name}
-        product = products[0]
-    except Exception as e:
-        return {"success": False, "message": str(e), "account": account_name}
+    title         = str(cmo_strategy.get("title", "Aesthetic Inspiration"))[:100]
+    description   = str(cmo_strategy.get("description", ""))
+    tags          = list(cmo_strategy.get("tags", []))
+    visual_prompt = str(cmo_strategy.get("visual_prompt", ""))
 
-    product_name = product.get("product_name", "Amazing Find")
-    raw_img_url = product.get("image_url", "")
+    logger.info(
+        f"[{account_name}] VIRAL_PIN | style={visual_style} | ratio={ratio} | "
+        f"prompt={visual_prompt[:60]}..."
+    )
 
-    # 2. Viral-Bait Check: Link Stripping
-    affiliate_link = product.get("affiliate_link") or product.get("product_url", "")
-    if "Viral-Bait" in strategy_name:
-        affiliate_link = "" # SHAMELESS STRIP
-        logger.info(f"🎯 [{account_name}] Viral-Bait detected. Affiliate link REMOVED.")
+    # ── Generate AI image (OpenRouter -> Pollinations fallback) ────────────────
+    if not visual_prompt:
+        visual_prompt = f"aesthetic {visual_style.replace('_', ' ')} photography, ultra-realistic, 4K ultra HD, photorealistic, highly detailed"
 
-    # 3. Get AI Image URL
-    final_image_url = await _generate_ai_image(strategy_name, cmo_strategy, account_name)
-    if not final_image_url: final_image_url = raw_img_url # Sheet Fallback
+    imgbb_url = await generate_pin_image(visual_prompt=visual_prompt, ratio=ratio)
 
-    # 4. Post to Pinterest
+    if not imgbb_url:
+        logger.error(f"[{account_name}] Image generation failed — all layers exhausted.")
+        return {"success": False, "message": "Image generation failed.", "account": account_name}
+
+    logger.info(f"[{account_name}] Image ready: {imgbb_url[:60]}...")
+
+    # ── Post to Pinterest (no affiliate link) ──────────────────────────────────
     try:
         success = await post_to_pinterest(
-            image_url=final_image_url,
-            title=(seo_copy.get("title") or product_name)[:100],
-            description=seo_copy.get("description", ""),
-            link=affiliate_link,
-            tags=seo_copy.get("tags") or [],
-            niche=product.get("niche") or cfg["niches"][0],
+            image_url=imgbb_url,
+            title=title,
+            description=description,
+            link="",          # No affiliate links — 100% visual strategy
+            tags=tags,
+            niche=cfg["default_niche"],
             target_account=account_name,
         )
-        if success: mark_as_posted(product_name)
     except Exception as e:
         return {"success": False, "message": str(e), "account": account_name}
 
-    return {"success": success, "message": f"Posted: {product_name[:30]}", "account": account_name}
+    if success:
+        logger.info(f"[{account_name}] Posted successfully.")
+        return {
+            "success":       True,
+            "message":       f"VIRAL_PIN posted | style={visual_style}",
+            "account":       account_name,
+            "visual_style":  visual_style,
+            "image_url":     imgbb_url,
+        }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Entry Point
-# ─────────────────────────────────────────────────────────────────────────────
+    return {"success": False, "message": "Webhook returned failure.", "account": account_name}
+
+
+# ── Entry Point ────────────────────────────────────────────────────────────────
 
 async def node_execution_engine(state: MastermindState) -> dict:
     trigger = state.get("cycle_trigger", "scheduled")
-    logger.info(f"🚀 [Node 4] Trigger: {trigger}")
+    logger.info(f"[Node 3 - Execute] Trigger: {trigger} | 100% VIRAL_PIN mode")
 
     a1_status = {"success": False, "message": "Skipped", "account": "Account1_HomeDecor"}
     a2_status = {"success": False, "message": "Skipped", "account": "Account2_Tech"}
 
-    if trigger == "manual-account1":
-        a1_status = await _execute_for_account("account_1", state["a1_final_seo_copy"], state["a1_cmo_strategy"])
-    elif trigger == "manual-account2":
-        a2_status = await _execute_for_account("account_2", state["a2_final_seo_copy"], state["a2_cmo_strategy"])
+    only_a1 = trigger == "manual-account1" or (
+        "account1" in trigger and "account2" not in trigger
+    )
+    only_a2 = trigger == "manual-account2" or (
+        "account2" in trigger and "account1" not in trigger
+    )
+
+    if only_a1:
+        a1_status = await _execute_for_account("account_1", state["a1_cmo_strategy"])
+    elif only_a2:
+        a2_status = await _execute_for_account("account_2", state["a2_cmo_strategy"])
     else:
-        # Scheduled Sequential
-        a1_status = await _execute_for_account("account_1", state["a1_final_seo_copy"], state["a1_cmo_strategy"])
+        # Both accounts — sequential with a small gap
+        a1_status = await _execute_for_account("account_1", state["a1_cmo_strategy"])
         await asyncio.sleep(5)
-        a2_status = await _execute_for_account("account_2", state["a2_final_seo_copy"], state["a2_cmo_strategy"])
+        a2_status = await _execute_for_account("account_2", state["a2_cmo_strategy"])
 
     return {"a1_publish_status": a1_status, "a2_publish_status": a2_status}

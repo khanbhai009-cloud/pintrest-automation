@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from pydantic import BaseModel
 
-from agent import run_agent, fill_missing_niches, fetch_aliexpress_products
+from agent import run_agent, fill_missing_niches
 from mastermind.graph import run_mastermind
 from tools.google_drive import get_all_products
 from tools.llm import chat
@@ -90,11 +90,8 @@ async def mastermind_scheduled_job(trigger: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _random_daily_split() -> list:
-    """Return a shuffled list of 5 pin types — randomly 2+3 or 3+2 VIRAL/AFFILIATE."""
-    viral_count = random.choice([2, 3])
-    types = ["VIRAL_PIN"] * viral_count + ["AFFILIATE_PIN"] * (5 - viral_count)
-    random.shuffle(types)
-    return types
+    """100% VIRAL_PIN — all 5 slots are aesthetic AI-generated pins."""
+    return ["VIRAL_PIN"] * 5
 
 
 def schedule_daily_pins():
@@ -493,4 +490,4 @@ def ping():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=7860)
+    uvicorn.run(app, host="0.0.0.0", port=5000)
