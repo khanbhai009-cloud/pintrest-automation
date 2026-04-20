@@ -232,17 +232,24 @@ async def _upload_to_imgbb(image_bytes: bytes) -> Optional[str]:
     if not IMGBB_API_KEY:
         logger.error("❌ [ImgBB] IMGBB_API_KEY not set.")
         return None
+    
     encoded = base64.b64encode(image_bytes).decode("utf-8")
-    logger.info(f"⬆️  [ImgBB] Uploading {len(image_bytes):,} bytes (permanent)...")
+    # Log me bhi update kar diya ki ye temporary upload hai
+    logger.info(f"⬆️  [ImgBB] Uploading {len(image_bytes):,} bytes (Temp: 30 mins)...")
+    
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
                 "https://api.imgbb.com/1/upload",
-                data={"key": IMGBB_API_KEY, "image": encoded},
+                data={
+                    "key": IMGBB_API_KEY, 
+                    "image": encoded,
+                    "expiration": 1800  # 1800 seconds = 30 minutes me auto-delete
+                },
             )
             resp.raise_for_status()
             url = resp.json()["data"]["url"]
-        logger.info(f"✅ [ImgBB] Hosted: {url}")
+        logger.info(f"✅ [ImgBB] Hosted temporarily: {url}")
         return url
     except Exception as e:
         logger.error(f"❌ [ImgBB] Upload failed: {e}")
