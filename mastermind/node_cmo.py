@@ -566,10 +566,17 @@ def _call_cmo_for_account(account_key: str, metrics: dict, pin_type_override: st
         logger.info(f"   [{account_key}] Gemini (primary)...")
         raw    = _call_gemini_sync(prompt)
         result = _extract_json(raw)
+        
+        # 👇 PYTHON LOGIC YAHAN HONA CHAHIYE 👇
+        style_key = result.get("visual_style")
+        if style_key and style_key in VISUAL_STYLES:
+            result["niche"] = random.choice(VISUAL_STYLES[style_key]["niche_affinity"])
+        # 👆 PYTHON LOGIC YAHAN HONA CHAHIYE 👆
+
         _validate(result, account_key)
         result["pin_type"] = "VIRAL_PIN"
         result["ratio"]    = result.get("ratio", ratio)
-        logger.info(f"   [{account_key}] Gemini OK | style={result.get('visual_style', '?')}")
+        logger.info(f"   [{account_key}] Gemini OK | style={result.get('visual_style', '?')} | niche={result.get('niche', '?')}")
         return result
     except Exception as gemini_err:
         logger.warning(f"   [{account_key}] Gemini failed: {gemini_err}")
@@ -579,10 +586,17 @@ def _call_cmo_for_account(account_key: str, metrics: dict, pin_type_override: st
         logger.info(f"   [{account_key}] Cerebras fallback...")
         raw    = _call_cerebras_sync(prompt)
         result = _extract_json(raw)
+        
+        # 👇 PYTHON LOGIC YAHAN BHI 👇
+        style_key = result.get("visual_style")
+        if style_key and style_key in VISUAL_STYLES:
+            result["niche"] = random.choice(VISUAL_STYLES[style_key]["niche_affinity"])
+        # 👆 PYTHON LOGIC YAHAN BHI 👆
+
         _validate(result, account_key)
         result["pin_type"] = "VIRAL_PIN"
         result["ratio"]    = result.get("ratio", ratio)
-        logger.info(f"   [{account_key}] Cerebras OK | style={result.get('visual_style', '?')}")
+        logger.info(f"   [{account_key}] Cerebras OK | style={result.get('visual_style', '?')} | niche={result.get('niche', '?')}")
         return result
     except RuntimeError as rate_err:
         logger.warning(f"   [{account_key}] {rate_err}")
