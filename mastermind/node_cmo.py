@@ -464,7 +464,7 @@ CREATIVE DIRECTION
 
 4. TAGS: CamelCase, no hashtag, exactly 5, SEO-optimized for Pinterest discoverability.
 OUTPUT FORMAT (JSON only — no other text before or after)
-{
+{{
   "pin_type": "VIRAL_PIN",
   "strategy": "<brief name for this specific creative direction>",
   "visual_style": "<exact key from the 10 styles above>",
@@ -476,7 +476,7 @@ OUTPUT FORMAT (JSON only — no other text before or after)
   "visual_prompt": "<ultra-specific T2I art-direction prompt expanded from t2i_base, ends with: 4K ultra HD, photorealistic, highly detailed, award-winning photography>",
   "ratio": "{ratio}"
 }
-
+l}}"""
 # ══════════════════════════════════════════════════════════════════════════════
 # HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
