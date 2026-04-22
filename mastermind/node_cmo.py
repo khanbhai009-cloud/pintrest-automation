@@ -327,9 +327,6 @@ STRICT RULES:
 - pin_type MUST always be exactly: "VIRAL_PIN"
 - visual_prompt = comma-separated T2I art-direction keywords. Specify: lighting, lens, camera angle, color temperature, texture, mood, compositional technique. No brand names. No sentences.
 - visual_prompt MUST end with: 4K ultra HD, photorealistic, highly detailed, award-winning photography
-- style_key = result.get("visual_style")
-        if style_key and style_key in VISUAL_STYLES:
-            result["niche"] = random.choice(VISUAL_STYLES[style_key]["niche_affinity"])
 - title = emotionally charged curiosity hook. NOT a description. Max 90 chars.
 - description = 2-3 sentences of sensory lifestyle copy. No products, no prices, no CTAs.
 - Tags: CamelCase, no #, exactly 5 tags.
@@ -503,7 +500,8 @@ def _extract_json(raw: str) -> dict:
 
 
 def _validate(result: dict, account_key: str) -> None:
-    required = ("pin_type", "strategy", "vibe", "title", "description", "tags", "visual_prompt")
+    # YAHAN NICHE AUR VISUAL_STYLE ADD KIYA HAI
+    required = ("pin_type", "strategy", "visual_style", "niche", "vibe", "title", "description", "tags", "visual_prompt")
     for field in required:
         if field not in result:
             raise KeyError(f"Missing '{field}' in CMO response for {account_key}.")
@@ -511,8 +509,6 @@ def _validate(result: dict, account_key: str) -> None:
     vp = result.get("visual_prompt", "")
     if "photorealistic" not in vp or "4K" not in vp:
         result["visual_prompt"] = vp.rstrip(", ") + ", 4K ultra HD, photorealistic, highly detailed, award-winning photography"
-
-
 # ══════════════════════════════════════════════════════════════════════════════
 # LLM CALLS
 # ══════════════════════════════════════════════════════════════════════════════
