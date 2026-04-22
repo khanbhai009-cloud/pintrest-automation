@@ -314,7 +314,8 @@ ABSOLUTE RULES (any violation = system failure):
 2. pin_type MUST always be exactly: "VIRAL_PIN"
 3. visual_prompt = comma-separated T2I keywords with art direction specifics. No sentences. No brands.
 4. visual_prompt MUST end with: 4K ultra HD, photorealistic, highly detailed, award-winning photography
-5. Tags: CamelCase, no hashtag symbol, exactly 5 tags.
+5. select niche must be.
+6. Tags: CamelCase, no hashtag symbol, exactly 5 tags.
 """
 
 _GEMINI_SYSTEM_INSTRUCTION = """\
@@ -326,6 +327,9 @@ STRICT RULES:
 - pin_type MUST always be exactly: "VIRAL_PIN"
 - visual_prompt = comma-separated T2I art-direction keywords. Specify: lighting, lens, camera angle, color temperature, texture, mood, compositional technique. No brand names. No sentences.
 - visual_prompt MUST end with: 4K ultra HD, photorealistic, highly detailed, award-winning photography
+- style_key = result.get("visual_style")
+        if style_key and style_key in VISUAL_STYLES:
+            result["niche"] = random.choice(VISUAL_STYLES[style_key]["niche_affinity"])
 - title = emotionally charged curiosity hook. NOT a description. Max 90 chars.
 - description = 2-3 sentences of sensory lifestyle copy. No products, no prices, no CTAs.
 - Tags: CamelCase, no #, exactly 5 tags.
