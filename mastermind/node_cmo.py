@@ -475,7 +475,7 @@ OUTPUT FORMAT (JSON only — no other text before or after)
   "tags": ["<Tag1>", "<Tag2>", "<Tag3>", "<Tag4>", "<Tag5>"],
   "visual_prompt": "<ultra-specific T2I art-direction prompt expanded from t2i_base, ends with: 4K ultra HD, photorealistic, highly detailed, award-winning photography>",
   "ratio": "{ratio}"
-}]}"""
+}}}"""
 # ══════════════════════════════════════════════════════════════════════════════
 # HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -503,8 +503,6 @@ def _validate(result: dict, account_key: str) -> None:
     for field in required:
         if field not in result:
             raise KeyError(f"Missing '{field}' in CMO response for {account_key}.")
-    if result.get("pin_type") != "VIRAL_PIN":
-        raise ValueError(f"CMO returned non-VIRAL_PIN for {account_key} — forcing override.")
     # Enforce visual_prompt ending
     vp = result.get("visual_prompt", "")
     if "photorealistic" not in vp or "4K" not in vp:
