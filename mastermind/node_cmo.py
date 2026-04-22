@@ -463,20 +463,19 @@ CREATIVE DIRECTION
      Never describe the image. Make the reader FEEL the image.
 
 4. TAGS: CamelCase, no hashtag, exactly 5, SEO-optimized for Pinterest discoverability.
-
 OUTPUT FORMAT (JSON only — no other text before or after)
-{{
+{
   "pin_type": "VIRAL_PIN",
   "strategy": "<brief name for this specific creative direction>",
   "visual_style": "<exact key from the 10 styles above>",
+  "niche": "<pick ONE exact niche from the niche_affinity list of your chosen visual_style>",
   "vibe": "<1-line art direction mood summary, max 80 chars>",
   "title": "<emotionally charged curiosity hook, max 90 chars>",
   "description": "<sensory lifestyle copy, 2-3 sentences, zero products/CTAs/prices, max 380 chars>",
   "tags": ["<Tag1>", "<Tag2>", "<Tag3>", "<Tag4>", "<Tag5>"],
   "visual_prompt": "<ultra-specific T2I art-direction prompt expanded from t2i_base, ends with: 4K ultra HD, photorealistic, highly detailed, award-winning photography>",
   "ratio": "{ratio}"
-}}"""
-
+}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HELPERS
