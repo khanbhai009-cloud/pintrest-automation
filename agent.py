@@ -231,6 +231,9 @@ async def publish_next_pin(visual_style: str) -> dict:
         return {"success": False, "reason": "Image generation failed — all layers exhausted."}
 
     # ── 3. Post to Pinterest via Make.com webhook — no affiliate link ─────────
+    # Extract niche from CMO strategy (if available, else default to visual_style as fallback)
+    niche = cmo.get("niche", visual_style)
+    
     try:
         success = await post_to_pinterest(
             image_url=imgbb_url,
@@ -238,7 +241,7 @@ async def publish_next_pin(visual_style: str) -> dict:
             description=desc,
             link="",          # No affiliate links — 100% visual strategy
             tags=tags,
-            niche=visual_style,
+            niche=niche,
             target_account=target_account,
         )
     except Exception as e:

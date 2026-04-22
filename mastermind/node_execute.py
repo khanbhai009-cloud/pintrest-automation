@@ -52,6 +52,9 @@ async def _execute_for_account(account_key: str, cmo_strategy: dict) -> dict:
     logger.info(f"[{account_name}] Image ready: {imgbb_url[:60]}...")
 
     # ── Post to Pinterest (no affiliate link) ──────────────────────────────────
+    # Extract niche from CMO strategy (if available, else fall back to account's default niche)
+    niche = cmo_strategy.get("niche", cfg["default_niche"])
+    
     try:
         success = await post_to_pinterest(
             image_url=imgbb_url,
@@ -59,7 +62,7 @@ async def _execute_for_account(account_key: str, cmo_strategy: dict) -> dict:
             description=description,
             link="",          # No affiliate links — 100% visual strategy
             tags=tags,
-            niche=cfg["default_niche"],
+            niche=niche,
             target_account=account_name,
         )
     except Exception as e:
