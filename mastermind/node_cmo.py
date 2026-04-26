@@ -40,7 +40,9 @@ import logging
 import os
 import random
 import re
-
+import gspread
+from google.oauth2.service_account import Credentials
+from config import GOOGLE_CREDS_JSON, SPREADSHEET_ID
 from config import CEREBRAS_API_KEY, CEREBRAS_CMO_MODEL, GEMINI_API_KEY, GEMINI_CMO_MODEL
 from mastermind.state import MastermindState
 
@@ -104,24 +106,50 @@ _ACCOUNT_STYLE_ORDERS = {
     "account_2": ACCOUNT_2_STYLE_ORDER,
 }
 
-
+def _get_tracker_sheet():
+    """Helper to connect to the Style_Tracker tab in existing Google Sheet"""
+    SCOPES = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds_dict = json.loads(GOOGLE_CREDS_JSON)
+    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    client = gspread.authorize(creds)
+    # Style_Tracker naam ka tab sheet me hona chahiye
+    return client.open_by_key(SPREADSHEET_ID).worksheet("Style_Tracker")
+    
 def _load_tracker() -> dict:
-    """Load style rotation tracker from JSON file."""
-    if os.path.exists(_TRACKER_FILE):
-        try:
-            with open(_TRACKER_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
+    """Load style rotation tracker from Google Sheet."""
+    try:
+        sheet = _get_tracker_sheet()
+        records = sheet.get_all_records()
+        if records:
+            # First row of data (Row 2 in sheet)
+            return records[0] 
+    except Exception as e:
+        logger.warning(f"⚠️ Tracker load failed (Sheet empty ya error): {e}")
     return {}
 
 
 def _save_tracker(tracker: dict) -> None:
-    """Save style rotation tracker to JSON file."""
-    os.makedirs(os.path.dirname(_TRACKER_FILE), exist_ok=True)
-    with open(_TRACKER_FILE, "w") as f:
-        json.dump(tracker, f, indent=2)
-
+    """Save style rotation tracker to Google Sheet."""
+    try:
+        sheet = _get_tracker_sheet()
+        records = sheet.get_all_records()
+        
+        a1_val = tracker.get("account_1", -1)
+        a2_val = tracker.get("account_2", -1)
+        
+        if not records:
+            # Agar sheet ekdum blank hai, toh pehle headers dalo fir data
+            sheet.append_row(["account_1", "account_2"])
+            sheet.append_row([a1_val, a2_val])
+        else:
+            # Row 2 (A2 aur B2) update karo
+            sheet.update('A2', [[a1_val, a2_val]])
+            
+    except Exception as e:
+        logger.error(f"❌ Failed to save tracker to sheet: {e}")
 
 def _get_next_style(account_key: str) -> str:
     """
