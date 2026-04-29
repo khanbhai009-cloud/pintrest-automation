@@ -619,6 +619,7 @@ HARDCODED_FALLBACK: dict = {
         "pin_type":      "VIRAL_PIN",
         "strategy":      "Boho Aesthetic Study Fallback",
         "visual_style":  "boho_aesthetic_study",
+        "niche":         "cozy",  # ← NICHE FOR BOARD SELECTION
         "vibe":          "Golden morning light, rattan chair, gallery wall, trailing pothos, art supplies on oak desk",
         "title":         "This Study Corner Made Me Want To Stay Home Forever",
         "description":   (
@@ -642,6 +643,7 @@ HARDCODED_FALLBACK: dict = {
         "pin_type":      "VIRAL_PIN",
         "strategy":      "Yellow Creator Flat Lay Fallback",
         "visual_style":  "yellow_creator_flatlay",
+        "niche":         "wfh",  # ← NICHE FOR BOARD SELECTION
         "vibe":          "Yellow headphones on MacBook, mustard camera, yellow roses, white linen, golden sidelight",
         "title":         "This Is What a Creative Morning Actually Looks Like",
         "description":   (
@@ -808,8 +810,13 @@ def _call_cmo_for_account(account_key: str, metrics: dict) -> dict:
     ratio        = _pick_ratio()
     profile      = _ACCOUNT_PROFILES[account_key]
     forced_style = _get_next_style(account_key)   # ← ROTATION ENGINE
+    
+    # ── Niche selection: pick random niche from style affinity ────────────────
+    style_data   = VISUAL_STYLES.get(forced_style, {})
+    niche_list   = style_data.get("niche_affinity", ["default"])
+    niche        = random.choice(niche_list) if niche_list else "default"
 
-    logger.info(f"   [{account_key}] 🎨 Generating style: {forced_style} | ratio={ratio}")
+    logger.info(f"   [{account_key}] 🎨 Generating style: {forced_style} | niche={niche} | ratio={ratio}")
     prompt = _build_forced_style_prompt(profile, forced_style, ratio)
 
     # PRIMARY: Gemini
@@ -821,7 +828,8 @@ def _call_cmo_for_account(account_key: str, metrics: dict) -> dict:
         result["pin_type"]     = "VIRAL_PIN"
         result["visual_style"] = forced_style   # enforce — LLM cannot change it
         result["ratio"]        = result.get("ratio", ratio)
-        logger.info(f"   [{account_key}] ✅ Gemini OK | style={forced_style}")
+        result["niche"]        = niche  # ← ADD NICHE FOR BOARD SELECTION
+        logger.info(f"   [{account_key}] ✅ Gemini OK | style={forced_style} | niche={niche}")
         return result
     except Exception as gemini_err:
         logger.warning(f"   [{account_key}] Gemini failed: {gemini_err}")
@@ -835,7 +843,8 @@ def _call_cmo_for_account(account_key: str, metrics: dict) -> dict:
         result["pin_type"]     = "VIRAL_PIN"
         result["visual_style"] = forced_style
         result["ratio"]        = result.get("ratio", ratio)
-        logger.info(f"   [{account_key}] ✅ Cerebras OK | style={forced_style}")
+        result["niche"]        = niche  # ← ADD NICHE FOR BOARD SELECTION
+        logger.info(f"   [{account_key}] ✅ Cerebras OK | style={forced_style} | niche={niche}")
         return result
     except RuntimeError as rate_err:
         logger.warning(f"   [{account_key}] {rate_err}")
