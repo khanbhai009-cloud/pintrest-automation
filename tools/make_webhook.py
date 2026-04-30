@@ -11,7 +11,8 @@ async def post_to_pinterest(
     link: str,
     tags: list,
     niche: str = "default",
-    target_account: str = None
+    target_account: str = None,
+    alt_text: str = ""
 ) -> bool:
     
     # Strictly target account find karo
@@ -31,6 +32,7 @@ async def post_to_pinterest(
         "caption":   caption[:500],
         "link":      link,
         "board_id":  board_id,
+        "alt_text":  alt_text,
     }
 
     logger.info(f"📌 [{account['name']}] Niche: {niche} → Board ID: {board_id}")

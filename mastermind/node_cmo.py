@@ -586,6 +586,7 @@ STRICT RULES:
 - title = emotionally charged curiosity hook. NOT a description. Max 90 chars.
 - description = 2-3 sentences of sensory lifestyle copy. No products, no prices, no CTAs.
 - Tags: CamelCase, no #, exactly 5 tags.
+- alt_text = Highly descriptive, SEO-optimized alternative text for the image. Max 400 chars.
 - For HOME DECOR account: ALWAYS BRIGHT, COLORFUL, WARM — NEVER dark or moody.
 """
 
@@ -628,6 +629,7 @@ HARDCODED_FALLBACK: dict = {
             "This is what home should feel like every single morning."
         ),
         "tags":          ["BohoHomeAesthetic", "StudyRoomDecor", "GalleryWallInspo", "AestheticStudy", "HomeDecorGoals"],
+        "alt_text":      "A highly aesthetic and visually pleasing Pinterest setup matching the exact vibe of the image.",
         "visual_prompt": (
             "boho aesthetic home study corner, warm morning golden sunlight through sheer white curtains, "
             "cream plaster walls with pastel abstract art prints gallery wall in natural wood frames, "
@@ -652,6 +654,7 @@ HARDCODED_FALLBACK: dict = {
             "The kind of morning desk that makes you excited to open your laptop."
         ),
         "tags":          ["CreatorAesthetic", "YellowFlatLay", "LaptopAesthetic", "ContentCreatorVibes", "AestheticSetup"],
+        "alt_text":      "A highly aesthetic and visually pleasing Pinterest setup matching the exact vibe of the image.",
         "visual_prompt": (
             "aesthetic creator lifestyle flat lay, overhead bird's eye view, white linen fabric surface, "
             "silver MacBook Pro open showing colorful content, mustard yellow over-ear headphones on keyboard center, "
@@ -726,6 +729,7 @@ OUTPUT FORMAT (JSON only — no other text before or after)
   "title": "<emotionally charged curiosity hook, max 90 chars>",
   "description": "<sensory lifestyle copy, 2-3 sentences, zero products/CTAs/prices, max 380 chars>",
   "tags": ["<Tag1>", "<Tag2>", "<Tag3>", "<Tag4>", "<Tag5>"],
+  "alt_text": "<Descriptive SEO-optimized alt text describing the image visually, max 400 chars>",
   "visual_prompt": "<ultra-specific T2I art-direction prompt expanded from T2I Base, ends with: 4K ultra HD, photorealistic, highly detailed, award-winning photography>",
   "ratio": "{ratio}"
 }}"""
@@ -748,7 +752,7 @@ def _extract_json(raw: str) -> dict:
 
 
 def _validate(result: dict, account_key: str) -> None:
-    required = ("pin_type", "strategy", "vibe", "title", "description", "tags", "visual_prompt")
+    required = ("pin_type", "strategy", "vibe", "title", "description", "tags", "alt_text", "visual_prompt")
     for field in required:
         if field not in result:
             raise KeyError(f"Missing '{field}' in CMO response for {account_key}.")

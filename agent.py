@@ -213,6 +213,7 @@ async def publish_next_pin(visual_style: str) -> dict:
     title         = str(cmo.get("title", "Aesthetic Inspiration"))[:100]
     desc          = str(cmo.get("description", ""))
     tags          = list(cmo.get("tags", []))
+    alt_text      = str(cmo.get("alt_text", ""))
 
     if not visual_prompt:
         visual_prompt = (
@@ -243,6 +244,7 @@ async def publish_next_pin(visual_style: str) -> dict:
             tags=tags,
             niche=niche,
             target_account=target_account,
+            alt_text=alt_text,
         )
     except Exception as e:
         return {"success": False, "reason": f"Webhook error: {e}"}
