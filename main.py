@@ -16,6 +16,7 @@ from mastermind.graph import run_mastermind
 from tools.google_drive import get_all_products
 from tools.llm import chat
 from config import GEMINI_API_KEY, GEMINI_CHAT_MODEL
+from tools.visions_ai import run_feeder_agent
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
@@ -42,9 +43,35 @@ state = {
     "mastermind_a2_posted": False,
     "mastermind_fallback": False,
     "stop_requested": False,
+    "vision_feeder_running": False,
 }
 
 scheduler = AsyncIOScheduler(timezone="America/New_York")
+
+# ── Vision Feeder Background Loop ─────────────────────────────────────────────
+async def vision_feeder_loop():
+    """
+    Drive folder continuously check karta hai.
+    Images milne par analyze karke Google Sheet mein daal deta hai.
+    Agar Drive empty ho toh 5 min baad dobara check karta hai.
+    """
+    state["vision_feeder_running"] = True
+    logger.info("👁️ Vision Feeder Agent started in background...")
+    while True:
+        try:
+            processed = await asyncio.to_thread(run_feeder_agent)
+            if processed == -1:
+                logger.warning("🚫 Vision Feeder: 429 quota hit — sleeping 24 hours...")
+                await asyncio.sleep(86400)  # 24 hours
+            elif processed == 0:
+                logger.info("👁️ Vision Feeder: Drive empty or limit reached — sleeping 5 minutes...")
+                await asyncio.sleep(300)  # 5 minutes
+            else:
+                logger.info(f"👁️ Vision Feeder: {processed} image(s) processed.")
+                await asyncio.sleep(10)   # short breather before next scan
+        except Exception as e:
+            logger.error(f"👁️ Vision Feeder Error: {e}")
+            await asyncio.sleep(60)       # error pe 1 min wait
 
 # ── Mastermind Job ─────────────────────────────────────────────────────────────
 async def mastermind_scheduled_job(trigger: str):
@@ -190,6 +217,11 @@ async def lifespan(app: FastAPI):
     schedule_daily_pins()
     scheduler.start()
     logger.info("✅ Smart Scheduler Active — 10 pins/day (5 per account) in EST 7:30 AM–7:30 PM window")
+
+    # ── Vision Feeder: background mein start karo ──────────────────────────────
+    asyncio.create_task(vision_feeder_loop())
+    logger.info("👁️ Vision Feeder Agent background task registered.")
+
     yield
     scheduler.shutdown()
 
@@ -213,13 +245,14 @@ async def get_all_stats():
     except Exception:
         pending = posted = total = 0
     return {
-        "running":      state["running"],
-        "pending":      pending,
-        "posted":       posted,
-        "total":        total,
-        "posted_today": state["posted_today"],
-        "last_action":  state["last_run"] or "—",
-        "last_summary": state["last_summary"],
+        "running":               state["running"],
+        "pending":               pending,
+        "posted":                posted,
+        "total":                 total,
+        "posted_today":          state["posted_today"],
+        "last_action":           state["last_run"] or "—",
+        "last_summary":          state["last_summary"],
+        "vision_feeder_running": state["vision_feeder_running"],
     }
 
 # ── Mastermind Stats ───────────────────────────────────────────────────────────
@@ -336,6 +369,7 @@ SYSTEM KI JANKARI:
 - Aggressive Affiliate Strike: I2I image via Puter — affiliate link rakho
 - Images ImgBB pe upload hoti hain (30 min temp URL), phir Make.com webhook se Pinterest pe jaati hain
 - Products Amazon se RapidAPI ke through aate hain, Google Sheet mein store hote hain
+- Vision Feeder: Google Drive se images utha ke Gemini Vision se analyze karta hai aur Prompts_Master sheet mein daalata hai
 
 COMMANDS JO TU DETECT KARTA HAI (lowercase dekh):
 - "aesthetic pin", "visual pin", "vibe pin" → action: run_aesthetic
@@ -370,7 +404,8 @@ async def chat_endpoint(req: ChatMessage, background_tasks: BackgroundTasks):
         f"Last run: {state['mastermind_last_run'] or 'Never'}. "
         f"A1 strategy: {state['mastermind_a1_strategy']}. "
         f"A2 strategy: {state['mastermind_a2_strategy']}. "
-        f"Today posted: {state['posted_today']} pins."
+        f"Today posted: {state['posted_today']} pins. "
+        f"Vision Feeder: {'ACTIVE' if state['vision_feeder_running'] else 'INACTIVE'}."
     )
 
     full_prompt = f"{CHAT_SYSTEM_PROMPT}\n\n{sys_ctx}\n\nUser: {msg}"
@@ -433,6 +468,7 @@ YOUR KNOWLEDGE BASE:
 - LLM Stack: Groq Llama 3.3 70B (primary execution agent) → Cerebras fallback
 - Products: Amazon via RapidAPI → filtered by quality → stored in Google Sheets
 - Delivery: ImgBB temp hosting → Make.com webhook → Pinterest
+- Vision Feeder: Google Drive se images utha ke Gemini Vision se analyze karta hai aur Prompts_Master sheet update karta hai
 
 YOUR ROLE IN THIS CHAT:
 - Be the strategic advisor — help with content strategy, niche decisions, growth tactics
@@ -460,7 +496,8 @@ async def cmo_chat_endpoint(req: ChatMessage):
         f"Last run: {state['mastermind_last_run'] or 'Never'}. "
         f"Account 1 strategy: {state['mastermind_a1_strategy']}. "
         f"Account 2 strategy: {state['mastermind_a2_strategy']}. "
-        f"Pins posted today: {state['posted_today']}."
+        f"Pins posted today: {state['posted_today']}. "
+        f"Vision Feeder: {'ACTIVE 🟢' if state['vision_feeder_running'] else 'INACTIVE ⚪'}."
     )
 
     full_prompt = f"{CMO_SYSTEM_PROMPT}\n\n[LIVE CONTEXT]: {sys_ctx}\n\n[USER]: {msg}\n\n[CEO MASTERMIND]:"
