@@ -1,0 +1,39 @@
+name: Sync Private HF to GitHub
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # Har 6 ghante mein auto-sync hoga (aap apne hisaab se change kar sakte ho)
+  workflow_dispatch: # Manual sync ka button
+
+jobs:
+  sync-to-github:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout GitHub Repo
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "Auto Sync Bot"
+          git config --global user.email "bot@autosync.com"
+
+      - name: Pull Latest Code from Private HF
+        env:
+          # Yahan check kar lena ki aapne GitHub secret ka naam HF_TOKEN hi rakha hai
+          HF_TOKEN: ${{ secrets.HF_TOKEN }} 
+        run: |
+          # Agar aapka HF repo model hai: USERNAME/REPONAME
+          # Agar HF space hai: spaces/USERNAME/REPONAME
+          HF_REPO_URL="https://ksksysy540:$HF_TOKEN@huggingface.co/spaces/ksksysy540/pinteresto"
+          
+          git remote add hf "$HF_REPO_URL"
+          
+          # HF se fetch aur merge
+          git fetch hf main
+          git merge hf/main --allow-unrelated-histories -m "Auto-sync latest code from Private Hugging Face"
+
+      - name: Push to GitHub Private Repo
+        run: |
+          git push origin main
