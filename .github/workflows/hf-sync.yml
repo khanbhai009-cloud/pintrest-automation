@@ -26,7 +26,7 @@ jobs:
         run: |
           # Agar aapka HF repo model hai: USERNAME/REPONAME
           # Agar HF space hai: spaces/USERNAME/REPONAME
-          HF_REPO_URL="https://user:${HF_TOKEN}@huggingface.co/spaces/APNA_HF_USERNAME/APNA_REPO_NAME"
+          HF_REPO_URL="https://ksksysy540:$HF_TOKEN@huggingface.co/spaces/ksksysy540/pinteresto"
           
           git remote add hf "$HF_REPO_URL"
           
