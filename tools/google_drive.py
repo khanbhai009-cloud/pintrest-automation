@@ -108,6 +108,25 @@ def _open_worksheet(sheet_name: str):
     return client.open_by_key(SPREADSHEET_ID).worksheet(sheet_name)
 
 
+# ── Prompts_Master — cache after first successful load ────────────────────────
+_prompts_cache = None
+
+def get_prompts_master() -> list:
+    """
+    Fetch all rows from the Prompts_Master tab.
+    Cached in memory after first successful load (resets on app restart).
+    Raises on connection failure — caller handles fallback.
+    """
+    global _prompts_cache
+    if _prompts_cache is not None:
+        return _prompts_cache
+    ws      = _open_worksheet("Prompts_Master")
+    records = ws.get_all_records()
+    _prompts_cache = records
+    logger.info(f"✅ [Prompts_Master] {len(records)} prompts loaded from sheet.")
+    return records
+
+
 def get_analytics_rows(sheet_name: str, days: int = 7) -> list:
     """
     Fetch the last `days` days of Pinterest analytics from a named sheet tab.

@@ -212,6 +212,134 @@ def _peek_current_style(account_key: str) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# PROMPTS_MASTER SHEET — Fetch + Rotate prompts per account/style
+# Fallback: hardcoded VISUAL_STYLES t2i_base if Sheets unavailable
+# ══════════════════════════════════════════════════════════════════════════════
+
+_PROMPT_TRACKER_FILE = "data/prompt_tracker_local.json"
+
+
+def _load_prompt_tracker() -> dict:
+    """Load per-style prompt rotation indices from local JSON file."""
+    try:
+        if os.path.exists(_PROMPT_TRACKER_FILE):
+            with open(_PROMPT_TRACKER_FILE, "r") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.warning(f"Prompt tracker load failed — {type(e).__name__}: {e}")
+    return {}
+
+
+def _save_prompt_tracker(tracker: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(_PROMPT_TRACKER_FILE), exist_ok=True)
+        with open(_PROMPT_TRACKER_FILE, "w") as f:
+            json.dump(tracker, f, indent=2)
+    except Exception as e:
+        logger.error(f"Prompt tracker save failed — {type(e).__name__}: {e}")
+
+
+def _get_prompt_for_style(account_key: str, style_key: str) -> str:
+    """
+    Fetch the next rotating prompt for this account+style from Prompts_Master sheet.
+
+    Column detection (flexible — any of these work):
+      Prompt : 'Prompt', 'prompt', 'T2I', 't2i', 'visual_prompt', 'Visual_Prompt'
+      Account: 'Account', 'account', 'Acc', 'acc'  (value: '1'/'2', 'account_1',
+               'homedecor'/'tech', or empty → matches all)
+      Style  : 'Style', 'style', 'StyleKey', 'style_key'  (value: style key or label,
+               or empty → matches all)
+
+    Rotation: cycles sequentially through all matching prompts via local JSON tracker.
+    Fallback: VISUAL_STYLES[style_key]['t2i_base'] on any error or no match.
+    """
+    hardcoded = VISUAL_STYLES.get(style_key, list(VISUAL_STYLES.values())[0]).get("t2i_base", "")
+
+    try:
+        from tools.google_drive import get_prompts_master
+        all_prompts = get_prompts_master()
+
+        if not all_prompts:
+            logger.warning(f"   [{account_key}] Prompts_Master empty — using hardcoded t2i_base")
+            return hardcoded
+
+        sample = all_prompts[0]
+
+        # Detect prompt column
+        prompt_col = next(
+            (c for c in ["Prompt", "prompt", "T2I", "t2i", "visual_prompt", "Visual_Prompt"]
+             if c in sample),
+            None
+        )
+        if not prompt_col:
+            logger.warning(f"   [{account_key}] No prompt column found in Prompts_Master — using hardcoded t2i_base")
+            return hardcoded
+
+        # Detect account + style columns
+        acc_col   = next((c for c in ["Account", "account", "Acc", "acc"] if c in sample), None)
+        style_col = next((c for c in ["Style", "style", "StyleKey", "style_key"] if c in sample), None)
+
+        # Build matching keywords
+        acc_num      = account_key.split("_")[-1]
+        acc_keywords = [acc_num, account_key, account_key.replace("_", "")]
+        if acc_num == "1":
+            acc_keywords += ["homedecor", "home", "decor", "acc1"]
+        else:
+            acc_keywords += ["tech", "techsetup", "acc2"]
+
+        style_label    = VISUAL_STYLES.get(style_key, {}).get("label", "").lower()
+        style_keywords = [style_key.lower(), style_key.replace("_", " ").lower(), style_label]
+
+        # Filter matching rows
+        matching = []
+        for row in all_prompts:
+            text = str(row.get(prompt_col, "")).strip()
+            if not text:
+                continue
+
+            if acc_col:
+                row_acc = str(row.get(acc_col, "")).strip().lower()
+                if row_acc and not any(kw in row_acc for kw in acc_keywords):
+                    continue
+
+            if style_col:
+                row_style = str(row.get(style_col, "")).strip().lower()
+                if row_style and not any(kw in row_style for kw in style_keywords):
+                    continue
+
+            matching.append(text)
+
+        if not matching:
+            logger.warning(
+                f"   [{account_key}] No Prompts_Master row matched style='{style_key}' "
+                f"— using hardcoded t2i_base"
+            )
+            return hardcoded
+
+        # Sequential rotation
+        tracker_key = f"{account_key}__{style_key}"
+        tracker     = _load_prompt_tracker()
+        last_idx    = tracker.get(tracker_key, -1)
+        next_idx    = (last_idx + 1) % len(matching)
+        tracker[tracker_key] = next_idx
+        _save_prompt_tracker(tracker)
+
+        chosen = matching[next_idx]
+        logger.info(
+            f"   [{account_key}] Prompt from Sheets [{next_idx+1}/{len(matching)}] "
+            f"for style '{style_key}' ({len(chosen)} chars)"
+        )
+        return chosen
+
+    except Exception as e:
+        logger.error(
+            f"   [{account_key}] Prompts_Master FAILED — "
+            f"{type(e).__name__}: {e} | using hardcoded t2i_base"
+        )
+        return hardcoded
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # 13 ELITE VISUAL STYLES — Sequential rotation coverage
 # ══════════════════════════════════════════════════════════════════════════════
 VISUAL_STYLES = {
@@ -785,13 +913,15 @@ HARDCODED_FALLBACK: dict = {
 # ══════════════════════════════════════════════════════════════════════════════
 # PROMPT BUILDER — Forces specific style (rotation engine controls which one)
 # ══════════════════════════════════════════════════════════════════════════════
-def _build_forced_style_prompt(profile: str, forced_style_key: str, ratio: str) -> str:
+def _build_forced_style_prompt(profile: str, forced_style_key: str, ratio: str, t2i_prompt: str = None) -> str:
     """
     Build a prompt that forces the LLM to use a specific visual style.
     The rotation engine picks which style — LLM only writes copy + expands the prompt.
+    t2i_prompt: from Prompts_Master sheet (if available), else hardcoded t2i_base is used.
     """
     ratio_cfg  = _RATIOS[ratio]
     style_data = VISUAL_STYLES[forced_style_key]
+    t2i_base   = t2i_prompt if t2i_prompt else style_data['t2i_base']
 
     return f"""TASK: Generate ONE VIRAL_PIN for the EXACT visual style specified below. Do NOT change the style.
 
@@ -802,7 +932,7 @@ FORCED VISUAL STYLE (use this EXACTLY — do not pick a different one)
 Key:         {forced_style_key}
 Label:       {style_data['label']}
 Description: {style_data['description']}
-T2I Base:    {style_data['t2i_base']}
+T2I Base:    {t2i_base}
 
 PIN SPECIFICATIONS
 Image ratio: {ratio_cfg['label']} ({ratio_cfg['w']}x{ratio_cfg['h']}px)
@@ -877,13 +1007,14 @@ def _validate(result: dict, account_key: str) -> None:
         result["visual_prompt"] = vp.rstrip(", ") + ", 4K ultra HD, photorealistic, highly detailed, award-winning photography"
 
 
-def _build_from_style_data(forced_style: str, ratio: str, niche: str) -> dict:
+def _build_from_style_data(forced_style: str, ratio: str, niche: str, account_key: str = "") -> dict:
     """
     Build a complete VIRAL_PIN strategy DIRECTLY from VISUAL_STYLES hardcoded data.
     Zero LLM dependency. Used when ALL LLM calls fail with non-429 errors.
 
-    The VISUAL_STYLES t2i_base prompts are already ultra-detailed and art-directed —
-    they produce magazine-quality results even without LLM expansion.
+    Prompt priority:
+      1. Prompts_Master sheet (via _get_prompt_for_style) — if Sheets connected
+      2. Hardcoded VISUAL_STYLES t2i_base — if Sheets unavailable
     Rotation still advances normally — only the LLM copy generation is skipped.
     """
     style = VISUAL_STYLES.get(forced_style, list(VISUAL_STYLES.values())[0])
@@ -891,8 +1022,11 @@ def _build_from_style_data(forced_style: str, ratio: str, niche: str) -> dict:
     desc  = style["description"]
     tags  = style["tags"]
 
-    # Use the highly detailed t2i_base directly as visual_prompt
-    visual_prompt = style["t2i_base"].strip().rstrip(", ")
+    # Try Sheets prompt first, fall back to hardcoded t2i_base
+    if account_key:
+        visual_prompt = _get_prompt_for_style(account_key, forced_style).strip().rstrip(", ")
+    else:
+        visual_prompt = style["t2i_base"].strip().rstrip(", ")
     if "4K ultra HD" not in visual_prompt:
         visual_prompt += ", 4K ultra HD, photorealistic, highly detailed, award-winning photography"
 
@@ -986,15 +1120,18 @@ def _call_cmo_for_account(account_key: str, metrics: dict) -> dict:
     """
     ratio        = _pick_ratio()
     profile      = _ACCOUNT_PROFILES[account_key]
-    forced_style = _get_next_style(account_key)   # ← ROTATION ENGINE
+    forced_style = _get_next_style(account_key)   # ← STYLE ROTATION ENGINE
 
     # Niche selection: pick random niche from style affinity
     style_data   = VISUAL_STYLES.get(forced_style, {})
     niche_list   = style_data.get("niche_affinity", ["default"])
     niche        = random.choice(niche_list) if niche_list else "default"
 
+    # Fetch prompt from Prompts_Master sheet (falls back to hardcoded t2i_base internally)
+    sheet_prompt = _get_prompt_for_style(account_key, forced_style)
+
     logger.info(f"   [{account_key}] Generating: {forced_style} | niche={niche} | ratio={ratio}")
-    prompt = _build_forced_style_prompt(profile, forced_style, ratio)
+    prompt = _build_forced_style_prompt(profile, forced_style, ratio, sheet_prompt)
 
     # ── PRIMARY: Gemini ───────────────────────────────────────────────────────
     try:
@@ -1041,7 +1178,7 @@ def _call_cmo_for_account(account_key: str, metrics: dict) -> dict:
             f"{type(cerebras_err).__name__}: {cerebras_err} | "
             f"→ Using VISUAL_STYLES direct build for: {forced_style}"
         )
-        return _build_from_style_data(forced_style, ratio, niche)
+        return _build_from_style_data(forced_style, ratio, niche, account_key)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
