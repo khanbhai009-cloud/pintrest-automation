@@ -1,83 +1,63 @@
-"""
-sheets/prompt_tracker.py — Per-style prompt rotation tracker (Prompt_Tracker sheet tab).
-
-Tab columns: tracker_key | last_idx
-tracker_key format: "account_1__boho_aesthetic_study"
-Local JSON fallback: data/prompt_tracker_local.json
-"""
-import json
 import logging
-import os
 from sheets.base import _open_worksheet
 
 logger = logging.getLogger(__name__)
 
-_LOCAL_FILE = "data/prompt_tracker_local.json"
-
-
 def load_prompt_tracker() -> dict:
     """
     Load per-style prompt rotation indices.
-    Priority: Prompt_Tracker sheet tab → local JSON → empty dict.
+    Reads ONLY from Google Sheets.
     Sheet columns: tracker_key | last_idx
     """
-    # 1. Try Google Sheets
     try:
-        sheet   = _open_worksheet("Prompt_Tracker")
+        sheet = _open_worksheet("Prompt_Tracker")
         records = sheet.get_all_records()
         if records:
-            data = {
-                str(r["tracker_key"]): int(r["last_idx"])
-                for r in records
-                if r.get("tracker_key") != ""
-            }
+            data = {}
+            for r in records:
+                key = r.get("tracker_key", "")
+                val = r.get("last_idx", 0)
+                # Ignore empty rows or header rows if they accidentally come up
+                if key != "" and key != "tracker_key":
+                    try:
+                        data[str(key)] = int(val)
+                    except ValueError:
+                        continue # Agar value number nahi hai toh ignore karo
+            
             logger.info(f"✅ Prompt_Tracker loaded from Sheets — {len(data)} keys")
             return data
     except Exception as e:
-        logger.warning(f"Prompt_Tracker Sheet load failed — {type(e).__name__}: {e} | trying local file")
+        logger.warning(f"Prompt_Tracker Sheet load failed — {type(e).__name__}: {e}")
 
-    # 2. Local JSON fallback
-    try:
-        if os.path.exists(_LOCAL_FILE):
-            with open(_LOCAL_FILE, "r") as f:
-                data = json.load(f)
-                logger.info(f"Prompt_Tracker loaded from local file — {len(data)} keys")
-                return data
-    except Exception as e:
-        logger.warning(f"Prompt_Tracker local file failed — {type(e).__name__}: {e}")
-
+    # Agar sheet khali hai ya error aaya toh empty dict return karo
     return {}
 
 
 def save_prompt_tracker(tracker: dict) -> None:
     """
     Save per-style prompt rotation indices.
-    Always writes local JSON first, then updates/appends rows in Prompt_Tracker sheet.
+    Writes ONLY to Google Sheets.
     Sheet columns: tracker_key | last_idx
     """
-    # Always save locally first
     try:
-        os.makedirs(os.path.dirname(_LOCAL_FILE), exist_ok=True)
-        with open(_LOCAL_FILE, "w") as f:
-            json.dump(tracker, f, indent=2)
-    except Exception as e:
-        logger.error(f"Prompt_Tracker local save failed — {type(e).__name__}: {e}")
-
-    # Best-effort Sheets save
-    try:
-        sheet         = _open_worksheet("Prompt_Tracker")
-        records       = sheet.get_all_records()
+        sheet = _open_worksheet("Prompt_Tracker")
+        records = sheet.get_all_records()
+        # Find which row each key is on (adding 2 because row 1 is header, list is 0-indexed)
         existing_keys = {r["tracker_key"]: i + 2 for i, r in enumerate(records) if r.get("tracker_key")}
 
-        if not records:
+        # Agar sheet puri khali hai toh pehle headers daalo
+        if not records and not existing_keys:
             sheet.append_row(["tracker_key", "last_idx"])
 
         for key, idx in tracker.items():
             if key in existing_keys:
+                # Update existing row
                 sheet.update(f"B{existing_keys[key]}", [[idx]])
             else:
+                # Add new row
                 sheet.append_row([key, idx])
 
         logger.info(f"✅ Prompt_Tracker saved to Sheets — {len(tracker)} keys")
     except Exception as e:
-        logger.warning(f"Prompt_Tracker Sheet save failed (local saved) — {type(e).__name__}: {e}")
+        logger.error(f"❌ Prompt_Tracker Sheet save failed — {type(e).__name__}: {e}")
+
