@@ -42,7 +42,11 @@ def node_data_intelligence(state: MastermindState) -> dict:
         else:
             logger.info(f"✅ [Acc 1] {len(a1_rows)} analytics rows fetched.")
     except Exception as e:
-        logger.warning(f"⚠️ [Acc 1] Analytics fetch failed ({e}) — injecting Stagnant profile.")
+        logger.error(
+            f"❌ [Acc 1] Analytics fetch FAILED — "
+            f"{type(e).__name__}: {e} | "
+            f"LIKELY CAUSE: GOOGLE_CREDS_JSON or SPREADSHEET_ID secret not set in Replit Secrets"
+        )
         a1_rows = STAGNANT_PROFILE
         fallback_triggered = True
 
@@ -56,7 +60,11 @@ def node_data_intelligence(state: MastermindState) -> dict:
         else:
             logger.info(f"✅ [Acc 2] {len(a2_rows)} analytics rows fetched.")
     except Exception as e:
-        logger.warning(f"⚠️ [Acc 2] Analytics fetch failed ({e}) — injecting Stagnant profile.")
+        logger.error(
+            f"❌ [Acc 2] Analytics fetch FAILED — "
+            f"{type(e).__name__}: {e} | "
+            f"LIKELY CAUSE: GOOGLE_CREDS_JSON or SPREADSHEET_ID secret not set in Replit Secrets"
+        )
         a2_rows = STAGNANT_PROFILE
         fallback_triggered = True
 
