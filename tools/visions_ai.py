@@ -33,10 +33,22 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Primary + Fallback Gemini clients
 _primary_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 _fallback_client = genai.Client(api_key=GEMINI_API_KEY_2) if GEMINI_API_KEY_2 else None
+
 import json as _json
-_creds_dict = _json.loads(CREDENTIALS_JSON) if isinstance(CREDENTIALS_JSON, str) else CREDENTIALS_JSON
-creds = Credentials.from_service_account_info(_creds_dict, scopes=SCOPES)
-drive_service = build('drive', 'v3', credentials=creds)
+
+creds = None
+drive_service = None
+
+try:
+    _creds_dict = _json.loads(CREDENTIALS_JSON) if isinstance(CREDENTIALS_JSON, str) else CREDENTIALS_JSON
+    if _creds_dict:
+        creds = Credentials.from_service_account_info(_creds_dict, scopes=SCOPES)
+        drive_service = build('drive', 'v3', credentials=creds)
+        logging.info("✅ Google Drive service initialized.")
+    else:
+        logging.warning("⚠️ GOOGLE_CREDS_JSON not set — Vision Feeder will be disabled.")
+except Exception as _e:
+    logging.warning(f"⚠️ Google credentials init failed: {_e} — Vision Feeder will be disabled.")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CORE FUNCTIONS
@@ -144,6 +156,10 @@ def _increment_today():
 
 def run_feeder_agent():
     """Main Drive Loop - Returns number of images processed"""
+    if drive_service is None:
+        logging.warning("⚠️ Vision Feeder disabled — Google credentials not configured.")
+        return 0
+
     # Daily limit check
     done_today = _get_today_processed()
     if done_today >= DAILY_IMAGE_LIMIT:
