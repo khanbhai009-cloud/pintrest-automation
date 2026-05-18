@@ -134,6 +134,68 @@ def get_prompts_master() -> list:
     return records
 
 
+def init_sheets() -> None:
+    """
+    App startup pe call hota hai — spreadsheet mein saari required tabs
+    automatically bana deta hai agar exist nahi karti, aur headers inject
+    karta hai. Agar sheet already hai toh touch nahi karta.
+
+    Required tabs + columns:
+      Prompts_Master   → style_key | account | label | description | t2i_base | niche_affinity | tags
+      Style_Tracker    → account_1 | account_2   (row-2 = initial 0|0 values)
+      Prompt_Tracker   → tracker_key | last_idx
+      Vision_Tracker   → date | file_name | style_key | account | status | timestamp
+      Analytics_Log    → Date | Impressions | Clicks | Outbound Clicks | Saves
+      Analytics_logs2  → Date | Impressions | Clicks | Outbound Clicks | Saves
+    """
+    if not GOOGLE_CREDS_JSON:
+        logger.warning("⚠️ [init_sheets] GOOGLE_CREDS_JSON not set — skipping auto-sheet creation.")
+        return
+
+    REQUIRED: dict[str, list] = {
+        "Prompts_Master":  ["style_key", "account", "label", "description", "t2i_base", "niche_affinity", "tags"],
+        "Style_Tracker":   ["account_1", "account_2"],
+        "Prompt_Tracker":  ["tracker_key", "last_idx"],
+        "Vision_Tracker":  ["date", "file_name", "style_key", "account", "status", "timestamp"],
+        "Analytics_Log":   ["Date", "Impressions", "Clicks", "Outbound Clicks", "Saves"],
+        "Analytics_logs2": ["Date", "Impressions", "Clicks", "Outbound Clicks", "Saves"],
+    }
+
+    try:
+        creds_dict  = json.loads(GOOGLE_CREDS_JSON)
+        creds       = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+        client      = gspread.authorize(creds)
+        spreadsheet = client.open_by_key(SPREADSHEET_ID)
+
+        existing_titles = {ws.title for ws in spreadsheet.worksheets()}
+        logger.info(f"📋 [init_sheets] Existing tabs: {existing_titles}")
+
+        for sheet_name, headers in REQUIRED.items():
+            if sheet_name not in existing_titles:
+                # Naya tab banao
+                ws = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=len(headers))
+                ws.append_row(headers)
+                # Style_Tracker ke liye initial value row bhi daal do
+                if sheet_name == "Style_Tracker":
+                    ws.append_row([0, 0])
+                logger.info(f"✅ [init_sheets] Created new tab: '{sheet_name}' with headers {headers}")
+            else:
+                # Already exist karta hai — check karo ki header hai ya nahi
+                ws      = spreadsheet.worksheet(sheet_name)
+                row1    = ws.row_values(1)
+                if not row1:
+                    ws.insert_row(headers, 1)
+                    if sheet_name == "Style_Tracker":
+                        ws.append_row([0, 0])
+                    logger.info(f"✅ [init_sheets] Injected headers into existing empty tab: '{sheet_name}'")
+                else:
+                    logger.info(f"☑️  [init_sheets] Tab already set up: '{sheet_name}'")
+
+        logger.info("🚀 [init_sheets] All required sheets verified/created successfully.")
+    except Exception as e:
+        logger.error(f"❌ [init_sheets] Sheet initialization failed — {type(e).__name__}: {e}")
+
+
 def get_analytics_rows(sheet_name: str, days: int = 7) -> list:
     """
     Fetch the last `days` days of Pinterest analytics from a named sheet tab.

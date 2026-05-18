@@ -225,6 +225,13 @@ def schedule_daily_pins():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ── Auto-create all required Google Sheet tabs on startup ──────────────────
+    try:
+        from tools.google_drive import init_sheets
+        init_sheets()
+    except Exception as _e:
+        logger.warning(f"⚠️ Sheet auto-init skipped — {_e}")
+
     # Daily re-scheduler — fires at 7:00 AM EST (30 min before window opens)
     scheduler.add_job(schedule_daily_pins, "cron", hour=7, minute=0, id="daily_scheduler")
     schedule_daily_pins()
