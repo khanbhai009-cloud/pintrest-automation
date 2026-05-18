@@ -6,11 +6,10 @@ Falls back to a "Stagnant" analytics profile on any failure; never crashes.
 """
 import logging
 from mastermind.state import MastermindState
-from tools.google_drive import get_analytics_rows
+from sheets import get_analytics_rows
 
 logger = logging.getLogger(__name__)
 
-# ── Default stagnant profile injected on sheet failure ───────────────────────
 STAGNANT_PROFILE = [
     {
         "Date": "fallback",

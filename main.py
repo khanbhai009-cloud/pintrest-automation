@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from agent import run_agent, fill_missing_niches
 from mastermind.graph import run_mastermind
-from tools.google_drive import get_all_products
+from sheets import get_all_products
 from tools.llm import chat
 from config import GEMINI_API_KEY, GEMINI_CHAT_MODEL
 from tools.visions_ai import run_feeder_agent, get_vision_stats, request_stop as vf_request_stop, request_start as vf_request_start
@@ -227,7 +227,7 @@ def schedule_daily_pins():
 async def lifespan(app: FastAPI):
     # ── Auto-create all required Google Sheet tabs on startup ──────────────────
     try:
-        from tools.google_drive import init_sheets
+        from sheets import init_sheets
         init_sheets()
     except Exception as _e:
         logger.warning(f"⚠️ Sheet auto-init skipped — {_e}")

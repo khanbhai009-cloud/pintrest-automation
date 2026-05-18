@@ -1,245 +1,27 @@
-import gspread
-import json
-import logging
-from datetime import datetime, timedelta
-from google.oauth2.service_account import Credentials
-from config import GOOGLE_CREDS_JSON, SPREADSHEET_ID, SHEET_NAME
+"""
+tools/google_drive.py — Backward-compatibility re-export layer.
 
-logger = logging.getLogger(__name__)
+Saara actual kaam ab sheets/ package mein hai.
+Ye file sirf purane imports ko nahi todne ke liye rakhi hai.
+"""
+from sheets import (
+    get_pending_products, mark_as_posted, save_products,
+    count_pending, get_all_products, get_products_without_niche, update_niche,
+    get_prompts_master, invalidate_cache,
+    get_analytics_rows,
+    load_style_tracker, save_style_tracker,
+    load_prompt_tracker, save_prompt_tracker,
+    log_to_vision_tracker, get_today_count_from_sheet,
+    init_sheets,
+)
 
-SCOPES = [
-    "https://spreadsheets.google.com/feeds",
-    "https://www.googleapis.com/auth/drive"
+__all__ = [
+    "get_pending_products", "mark_as_posted", "save_products",
+    "count_pending", "get_all_products", "get_products_without_niche", "update_niche",
+    "get_prompts_master", "invalidate_cache",
+    "get_analytics_rows",
+    "load_style_tracker", "save_style_tracker",
+    "load_prompt_tracker", "save_prompt_tracker",
+    "log_to_vision_tracker", "get_today_count_from_sheet",
+    "init_sheets",
 ]
-
-_sheet_cache = None
-
-def _get_sheet():
-    global _sheet_cache
-    if _sheet_cache is not None:
-        return _sheet_cache 
-    try:
-        creds_dict = json.loads(GOOGLE_CREDS_JSON)
-        creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-        client = gspread.authorize(creds)
-        _sheet_cache = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
-        logger.info("✅ Sheet connected")
-        return _sheet_cache
-    except Exception as e:
-        logger.exception("❌ Sheet connection failed:")
-        raise
-
-# 🔥 FIX: Multi-Niche list filtering support
-def get_pending_products(limit: int = 2, allowed_niches: list = None) -> list:
-    sheet   = _get_sheet()
-    records = sheet.get_all_records()
-    pending = [r for r in records if r.get("Status") == "PENDING"]
-    
-    if allowed_niches:
-        pending = [r for r in pending if r.get("niche") in allowed_niches]
-        
-    logger.info(f"📋 Found {len(pending)} pending products" + (f" for: {allowed_niches}" if allowed_niches else ""))
-    return pending[:limit]
-
-def mark_as_posted(product_name: str) -> bool:
-    sheet = _get_sheet()
-    records = sheet.get_all_records()
-    headers = sheet.row_values(1)
-    status_col = headers.index("Status") + 1
-    for i, record in enumerate(records, start=2):
-        if record.get("product_name") == product_name:
-            sheet.update_cell(i, status_col, "POSTED")
-            logger.info(f"✅ Marked POSTED: {product_name[:30]}...")
-            return True
-    return False
-
-def save_products(products: list) -> None:
-    if not products: return
-    sheet = _get_sheet()
-    rows = []
-    for p in products:
-        rows.append([
-            p.get("product_name", ""), p.get("product_id", ""), p.get("sale_price", ""),
-            p.get("rating", ""), p.get("orders", ""), p.get("affiliate_link", ""),
-            p.get("image_url", ""), p.get("keyword", ""), p.get("niche", "home"), "PENDING"
-        ])
-    sheet.append_rows(rows, value_input_option="RAW")
-    logger.info(f"💾 Saved {len(rows)} products in 1 API call ✅")
-
-def count_pending() -> int:
-    sheet = _get_sheet()
-    records = sheet.get_all_records()
-    count = sum(1 for r in records if r.get("Status") == "PENDING")
-    return count
-
-def get_all_products() -> list:
-    sheet = _get_sheet()
-    return sheet.get_all_records()
-
-def get_products_without_niche() -> list:
-    sheet = _get_sheet()
-    records = sheet.get_all_records()
-    empty = [r for r in records if not str(r.get("niche", "")).strip()]
-    return empty
-
-def update_niche(product_name: str, niche: str) -> bool:
-    sheet = _get_sheet()
-    records = sheet.get_all_records()
-    headers = sheet.row_values(1)
-    if "niche" not in headers: return False
-    niche_col = headers.index("niche") + 1
-    for i, record in enumerate(records, start=2):
-        if record.get("product_name") == product_name:
-            sheet.update_cell(i, niche_col, niche)
-            logger.info(f"✅ Niche updated: {product_name[:30]}... → {niche}")
-            return True
-    return False
-
-
-# ── Mastermind CEO — Analytics ────────────────────────────────────────────────
-
-def _open_worksheet(sheet_name: str):
-    """Open a named worksheet from the configured spreadsheet."""
-    if not GOOGLE_CREDS_JSON:
-        raise ValueError("GOOGLE_CREDS_JSON is not set.")
-    creds_dict = json.loads(GOOGLE_CREDS_JSON)
-    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    client = gspread.authorize(creds)
-    return client.open_by_key(SPREADSHEET_ID).worksheet(sheet_name)
-
-
-# ── Prompts_Master — TTL cache (30 min) so new rows auto-pickup ───────────────
-import time as _time
-_prompts_cache: list | None = None
-_prompts_cache_ts: float    = 0.0
-_PROMPTS_TTL                = 1800   # 30 minutes
-
-def get_prompts_master() -> list:
-    """
-    Fetch all rows from Prompts_Master tab.
-    TTL-cached (30 min) — new rows added to the sheet are picked up automatically.
-    Raises on connection failure — caller handles fallback.
-
-    Expected sheet columns: style_key | account | label | description | t2i_base | niche_affinity | tags
-    """
-    global _prompts_cache, _prompts_cache_ts
-    now = _time.time()
-    if _prompts_cache is not None and (now - _prompts_cache_ts) < _PROMPTS_TTL:
-        return _prompts_cache
-    ws      = _open_worksheet("Prompts_Master")
-    records = ws.get_all_records()
-    _prompts_cache    = records
-    _prompts_cache_ts = now
-    logger.info(f"✅ [Prompts_Master] {len(records)} prompts loaded (TTL refreshed).")
-    return records
-
-
-def init_sheets() -> None:
-    """
-    App startup pe call hota hai — spreadsheet mein saari required tabs
-    automatically bana deta hai agar exist nahi karti, aur headers inject
-    karta hai. Agar sheet already hai toh touch nahi karta.
-
-    Required tabs + columns:
-      Prompts_Master   → style_key | account | label | description | t2i_base | niche_affinity | tags
-      Style_Tracker    → account_1 | account_2   (row-2 = initial 0|0 values)
-      Prompt_Tracker   → tracker_key | last_idx
-      Vision_Tracker   → date | file_name | style_key | account | status | timestamp
-      Analytics_Log    → Date | Impressions | Clicks | Outbound Clicks | Saves
-      Analytics_logs2  → Date | Impressions | Clicks | Outbound Clicks | Saves
-    """
-    if not GOOGLE_CREDS_JSON:
-        logger.warning("⚠️ [init_sheets] GOOGLE_CREDS_JSON not set — skipping auto-sheet creation.")
-        return
-
-    REQUIRED: dict[str, list] = {
-        "Prompts_Master":  ["style_key", "account", "label", "description", "t2i_base", "niche_affinity", "tags"],
-        "Style_Tracker":   ["account_1", "account_2"],
-        "Prompt_Tracker":  ["tracker_key", "last_idx"],
-        "Vision_Tracker":  ["date", "file_name", "style_key", "account", "status", "timestamp"],
-        "Analytics_Log":   ["Date", "Impressions", "Clicks", "Outbound Clicks", "Saves"],
-        "Analytics_logs2": ["Date", "Impressions", "Clicks", "Outbound Clicks", "Saves"],
-    }
-
-    try:
-        creds_dict  = json.loads(GOOGLE_CREDS_JSON)
-        creds       = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-        client      = gspread.authorize(creds)
-        spreadsheet = client.open_by_key(SPREADSHEET_ID)
-
-        existing_titles = {ws.title for ws in spreadsheet.worksheets()}
-        logger.info(f"📋 [init_sheets] Existing tabs: {existing_titles}")
-
-        for sheet_name, headers in REQUIRED.items():
-            if sheet_name not in existing_titles:
-                # Naya tab banao
-                ws = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=len(headers))
-                ws.append_row(headers)
-                # Style_Tracker ke liye initial value row bhi daal do
-                if sheet_name == "Style_Tracker":
-                    ws.append_row([0, 0])
-                logger.info(f"✅ [init_sheets] Created new tab: '{sheet_name}' with headers {headers}")
-            else:
-                # Already exist karta hai — check karo ki header hai ya nahi
-                ws      = spreadsheet.worksheet(sheet_name)
-                row1    = ws.row_values(1)
-                if not row1:
-                    ws.insert_row(headers, 1)
-                    if sheet_name == "Style_Tracker":
-                        ws.append_row([0, 0])
-                    logger.info(f"✅ [init_sheets] Injected headers into existing empty tab: '{sheet_name}'")
-                else:
-                    logger.info(f"☑️  [init_sheets] Tab already set up: '{sheet_name}'")
-
-        logger.info("🚀 [init_sheets] All required sheets verified/created successfully.")
-    except Exception as e:
-        logger.error(f"❌ [init_sheets] Sheet initialization failed — {type(e).__name__}: {e}")
-
-
-def get_analytics_rows(sheet_name: str, days: int = 7) -> list:
-    """
-    Fetch the last `days` days of Pinterest analytics from a named sheet tab.
-    Expected columns: Date, Impressions, Clicks, Outbound Clicks, Saves.
-
-    Returns a list of dicts (one per day). Raises on connection error so the
-    calling node can catch it and apply the stagnant-profile fallback.
-    """
-    ws = _open_worksheet(sheet_name)
-    records = ws.get_all_records()
-
-    if not records:
-        logger.warning(f"⚠️  [{sheet_name}] Sheet is empty — no analytics rows.")
-        return []
-
-    # Try to filter to last `days` calendar days by Date column
-    cutoff = datetime.now() - timedelta(days=days)
-    filtered = []
-    parse_errors = 0
-
-    for row in records:
-        raw_date = str(row.get("Date", "")).strip()
-        if not raw_date:
-            continue
-        parsed = None
-        for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%d-%m-%Y", "%B %d, %Y"):
-            try:
-                parsed = datetime.strptime(raw_date, fmt)
-                break
-            except ValueError:
-                continue
-        if parsed is None:
-            parse_errors += 1
-            filtered.append(row)   # Keep unparseable rows rather than drop them
-        elif parsed >= cutoff:
-            filtered.append(row)
-
-    if parse_errors:
-        logger.warning(f"⚠️  [{sheet_name}] {parse_errors} rows had unparseable dates — included as-is.")
-
-    # If date filtering produced nothing, fall back to last `days` rows
-    if not filtered:
-        filtered = records[-days:]
-        logger.info(f"ℹ️  [{sheet_name}] Date filter returned 0 rows — using last {days} rows.")
-
-    logger.info(f"✅ [{sheet_name}] {len(filtered)} analytics rows loaded.")
-    return filtered

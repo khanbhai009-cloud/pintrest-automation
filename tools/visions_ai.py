@@ -3,26 +3,23 @@ import io
 import time
 import json
 import logging
-import gspread
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from google import genai
 from google.genai import types
-from config import GEMINI_API_KEY, SPREADSHEET_ID, GOOGLE_CREDS_JSON as CREDENTIALS_JSON, GEMINI_API_KEY_2
+from config import GEMINI_API_KEY, GOOGLE_CREDS_JSON as CREDENTIALS_JSON, GEMINI_API_KEY_2
+from sheets import log_to_vision_tracker, get_today_count_from_sheet, append_prompt_row
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
 # Google Drive Folder IDs
-DRIVE_INPUT_FOLDER_ID = "1pazvTr_I75pqCGZW-OEwr0Bs2q_8tFnu"
+DRIVE_INPUT_FOLDER_ID     = "1pazvTr_I75pqCGZW-OEwr0Bs2q_8tFnu"
 DRIVE_PROCESSED_FOLDER_ID = "12S9mAhs43YRBVFCzc-xhX2BhhcoRoBBg"
 
-SCOPES = [
-    "https://spreadsheets.google.com/feeds", 
-    "https://www.googleapis.com/auth/drive"
-]
+SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -54,68 +51,6 @@ except Exception as _e:
 # CORE FUNCTIONS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def append_to_sheet(data: dict):
-    """Google Sheet me extracted DNA ko Prompts_Master mein append karta hai."""
-    gc = gspread.authorize(creds)
-    sheet = gc.open_by_key(SPREADSHEET_ID).worksheet("Prompts_Master")
-    
-    row = [
-        data.get("style_key", ""),
-        data.get("account", "account_1"),
-        data.get("label", ""),
-        data.get("description", ""),
-        data.get("t2i_base", ""),
-        data.get("niche_affinity", ""),
-        data.get("tags", "")
-    ]
-    sheet.append_row(row)
-    logging.info(f"✅ Prompts_Master Updated: {data.get('style_key')}")
-
-
-def log_to_vision_tracker(file_name: str, style_key: str, account: str, status: str = "processed"):
-    """
-    Vision_Tracker sheet mein processed image ka log append karta hai.
-    Sheet columns: date | file_name | style_key | account | status | timestamp
-    Agar sheet empty hai toh header row pehle likhta hai.
-    """
-    from datetime import datetime, date
-    try:
-        gc      = gspread.authorize(creds)
-        sheet   = gc.open_by_key(SPREADSHEET_ID).worksheet("Vision_Tracker")
-        records = sheet.get_all_records()
-        if not records:
-            sheet.append_row(["date", "file_name", "style_key", "account", "status", "timestamp"])
-        now = datetime.now()
-        sheet.append_row([
-            str(date.today()),
-            file_name,
-            style_key,
-            account,
-            status,
-            now.strftime("%I:%M %p")
-        ])
-        logging.info(f"✅ Vision_Tracker logged: {file_name} → {style_key} ({account})")
-    except Exception as e:
-        logging.warning(f"⚠️ Vision_Tracker sheet log failed — {type(e).__name__}: {e}")
-
-
-def _get_today_count_from_sheet() -> int:
-    """
-    Vision_Tracker sheet se aaj ki processed count fetch karta hai.
-    Restart-safe: in-memory reset hone par bhi Sheets se sahi count milti hai.
-    """
-    from datetime import date
-    today = str(date.today())
-    try:
-        gc      = gspread.authorize(creds)
-        sheet   = gc.open_by_key(SPREADSHEET_ID).worksheet("Vision_Tracker")
-        records = sheet.get_all_records()
-        count   = sum(1 for r in records if str(r.get("date", "")).strip() == today)
-        logging.info(f"✅ Vision_Tracker: {count} images processed today (from Sheets)")
-        return count
-    except Exception as e:
-        logging.warning(f"⚠️ Vision_Tracker sheet count failed — {type(e).__name__}: {e} | using in-memory count")
-        return _today_count["count"]
 
 def analyze_image(image_path: str) -> dict:
     """Gemini Vision ka use karke strict dynamic JSON extract karta hai."""
@@ -224,18 +159,15 @@ def get_vision_stats() -> dict:
 def _get_today_processed():
     """
     Aaj kitni images process hui hain.
-    Priority: Vision_Tracker sheet (restart-safe) → in-memory count.
+    Priority: Vision_Tracker sheet (sheets/ package, restart-safe) → in-memory count.
     """
     from datetime import date
     today = str(date.today())
-    # Reset in-memory counter if new day
     if _today_count["date"] != today:
         _today_count["date"] = today
         _today_count["count"] = 0
-    # Try Sheets first (accurate even after restart)
     if creds is not None:
-        sheet_count = _get_today_count_from_sheet()
-        # Sync in-memory if sheet shows higher number (e.g., after restart)
+        sheet_count = get_today_count_from_sheet()
         if sheet_count > _today_count["count"]:
             _today_count["count"] = sheet_count
     return _today_count["count"]
@@ -317,7 +249,7 @@ def run_feeder_agent():
             extracted_dna = analyze_image(temp_path)
 
             logging.info("📝 Pushing to Prompts_Master Sheet...")
-            append_to_sheet(extracted_dna)
+            append_prompt_row(extracted_dna)
 
             logging.info("📋 Logging to Vision_Tracker Sheet...")
             log_to_vision_tracker(

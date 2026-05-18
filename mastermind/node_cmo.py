@@ -43,11 +43,10 @@ import logging
 import os
 import random
 import re
-import gspread
-from google.oauth2.service_account import Credentials
-from config import GOOGLE_CREDS_JSON, SPREADSHEET_ID
 from config import CEREBRAS_API_KEY, CEREBRAS_CMO_MODEL, GEMINI_API_KEY, GEMINI_CMO_MODEL
 from mastermind.state import MastermindState
+from sheets import (get_prompts_master, load_style_tracker, save_style_tracker,
+                    load_prompt_tracker, save_prompt_tracker)
 
 logger = logging.getLogger(__name__)
 
@@ -82,9 +81,6 @@ def _pick_ratio() -> str:
 # Cycles through ALL styles one by one. Tracker saved to JSON file.
 # ══════════════════════════════════════════════════════════════════════════════
 
-_TRACKER_FILE       = "data/style_tracker.json"   # legacy (unused — kept for reference)
-_LOCAL_TRACKER_FILE = "data/style_tracker_local.json"  # local JSON fallback when Sheets unavailable
-
 # Ordered style rotation lists per account — all styles covered in sequence
 ACCOUNT_1_STYLE_ORDER = [
     "boho_aesthetic_study",
@@ -113,73 +109,6 @@ _ACCOUNT_STYLE_ORDERS = {
     "account_2": ACCOUNT_2_STYLE_ORDER,
 }
 
-def _get_tracker_sheet():
-    """Helper to connect to the Style_Tracker tab in existing Google Sheet"""
-    SCOPES = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive"
-    ]
-    creds_dict = json.loads(GOOGLE_CREDS_JSON)
-    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    client = gspread.authorize(creds)
-    # Style_Tracker naam ka tab sheet me hona chahiye
-    return client.open_by_key(SPREADSHEET_ID).worksheet("Style_Tracker")
-    
-def _load_tracker() -> dict:
-    """
-    Load style rotation tracker.
-    Priority: Google Sheets → Local JSON file → empty dict (starts from 0).
-    """
-    # 1. Try Google Sheets
-    try:
-        sheet   = _get_tracker_sheet()
-        records = sheet.get_all_records()
-        if records:
-            data = records[0]
-            # Convert string values from Sheets to int
-            return {k: int(v) for k, v in data.items() if v != ""}
-    except Exception as e:
-        logger.warning(f"Tracker Sheet failed — {type(e).__name__}: {e} | trying local file")
-
-    # 2. Local JSON fallback
-    try:
-        if os.path.exists(_LOCAL_TRACKER_FILE):
-            with open(_LOCAL_TRACKER_FILE, "r") as f:
-                data = json.load(f)
-                logger.info(f"Tracker loaded from local file: {data}")
-                return data
-    except Exception as e:
-        logger.warning(f"Local tracker file failed — {type(e).__name__}: {e} | starting from index 0")
-
-    return {}
-
-
-def _save_tracker(tracker: dict) -> None:
-    """
-    Save style rotation tracker.
-    Tries Google Sheets first, always writes to local JSON as backup.
-    """
-    # Always save to local file first (instant, no API dependency)
-    try:
-        os.makedirs(os.path.dirname(_LOCAL_TRACKER_FILE), exist_ok=True)
-        with open(_LOCAL_TRACKER_FILE, "w") as f:
-            json.dump(tracker, f, indent=2)
-    except Exception as e:
-        logger.error(f"Local tracker save failed — {type(e).__name__}: {e}")
-
-    # Also try Google Sheets (best effort, silent fail)
-    try:
-        sheet   = _get_tracker_sheet()
-        records = sheet.get_all_records()
-        a1_val  = tracker.get("account_1", -1)
-        a2_val  = tracker.get("account_2", -1)
-        if not records:
-            sheet.append_row(["account_1", "account_2"])
-            sheet.append_row([a1_val, a2_val])
-        else:
-            sheet.update("A2", [[a1_val, a2_val]])
-    except Exception as e:
-        logger.warning(f"Tracker Sheet save failed (local file already saved) — {type(e).__name__}: {e}")
 
 def _get_sheet_style_order(account_key: str) -> list | None:
     """
@@ -189,7 +118,6 @@ def _get_sheet_style_order(account_key: str) -> list | None:
     Returns None if Sheets unavailable → caller uses hardcoded lists.
     """
     try:
-        from tools.google_drive import get_prompts_master
         rows = get_prompts_master()
         seen = []
         for row in rows:
@@ -215,12 +143,12 @@ def _get_next_style(account_key: str) -> str:
     Wraps back to index 0 after all styles covered.
     """
     order    = _get_effective_style_order(account_key)
-    tracker  = _load_tracker()
+    tracker  = load_style_tracker()
     last_idx = tracker.get(account_key, -1)
     next_idx = (last_idx + 1) % len(order)
 
     tracker[account_key] = next_idx
-    _save_tracker(tracker)
+    save_style_tracker(tracker)
 
     chosen = order[next_idx]
     logger.info(f"   [{account_key}] Style Rotation [{next_idx+1}/{len(order)}] → {chosen}")
@@ -230,7 +158,7 @@ def _get_next_style(account_key: str) -> str:
 def _peek_current_style(account_key: str) -> str:
     """Peek at NEXT style WITHOUT advancing any tracker (for logging/dashboard)."""
     order    = _get_effective_style_order(account_key)
-    tracker  = _load_tracker()
+    tracker  = load_style_tracker()
     idx      = tracker.get(account_key, -1)
     curr_idx = (idx + 1) % len(order)
     return order[curr_idx]
@@ -241,82 +169,6 @@ def _peek_current_style(account_key: str) -> str:
 # Fallback: hardcoded VISUAL_STYLES t2i_base if Sheets unavailable
 # ══════════════════════════════════════════════════════════════════════════════
 
-_PROMPT_TRACKER_FILE = "data/prompt_tracker_local.json"
-
-
-def _get_prompt_tracker_sheet():
-    """Connect to Prompt_Tracker tab in existing Google Sheet."""
-    creds_dict = json.loads(GOOGLE_CREDS_JSON)
-    creds = Credentials.from_service_account_info(creds_dict, scopes=[
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive"
-    ])
-    client = gspread.authorize(creds)
-    return client.open_by_key(SPREADSHEET_ID).worksheet("Prompt_Tracker")
-
-
-def _load_prompt_tracker() -> dict:
-    """
-    Load per-style prompt rotation indices.
-    Priority: Google Sheets (Prompt_Tracker tab) → Local JSON fallback.
-    Sheet columns: tracker_key | last_idx
-    """
-    # 1. Try Google Sheets
-    try:
-        sheet   = _get_prompt_tracker_sheet()
-        records = sheet.get_all_records()
-        if records:
-            data = {str(r["tracker_key"]): int(r["last_idx"]) for r in records if r.get("tracker_key") != ""}
-            logger.info(f"✅ Prompt_Tracker loaded from Sheets — {len(data)} keys")
-            return data
-    except Exception as e:
-        logger.warning(f"Prompt_Tracker Sheet load failed — {type(e).__name__}: {e} | trying local file")
-
-    # 2. Local JSON fallback
-    try:
-        if os.path.exists(_PROMPT_TRACKER_FILE):
-            with open(_PROMPT_TRACKER_FILE, "r") as f:
-                data = json.load(f)
-                logger.info(f"Prompt tracker loaded from local file: {len(data)} keys")
-                return data
-    except Exception as e:
-        logger.warning(f"Prompt tracker local file failed — {type(e).__name__}: {e}")
-    return {}
-
-
-def _save_prompt_tracker(tracker: dict) -> None:
-    """
-    Save per-style prompt rotation indices.
-    Writes to Google Sheets (Prompt_Tracker tab) + always writes local JSON backup.
-    Sheet columns: tracker_key | last_idx
-    """
-    # Always save to local file first (instant, no API dependency)
-    try:
-        os.makedirs(os.path.dirname(_PROMPT_TRACKER_FILE), exist_ok=True)
-        with open(_PROMPT_TRACKER_FILE, "w") as f:
-            json.dump(tracker, f, indent=2)
-    except Exception as e:
-        logger.error(f"Prompt tracker local save failed — {type(e).__name__}: {e}")
-
-    # Also try Google Sheets (best effort, silent fail)
-    try:
-        sheet   = _get_prompt_tracker_sheet()
-        records = sheet.get_all_records()
-        existing_keys = {r["tracker_key"]: i + 2 for i, r in enumerate(records) if r.get("tracker_key")}
-
-        if not records:
-            # Write header first
-            sheet.append_row(["tracker_key", "last_idx"])
-
-        for key, idx in tracker.items():
-            if key in existing_keys:
-                sheet.update(f"B{existing_keys[key]}", [[idx]])
-            else:
-                sheet.append_row([key, idx])
-
-        logger.info(f"✅ Prompt_Tracker saved to Sheets — {len(tracker)} keys")
-    except Exception as e:
-        logger.warning(f"Prompt_Tracker Sheet save failed (local file already saved) — {type(e).__name__}: {e}")
 
 
 def _get_sheet_row_for_style(account_key: str, style_key: str) -> dict | None:
@@ -326,7 +178,6 @@ def _get_sheet_row_for_style(account_key: str, style_key: str) -> dict | None:
     Returns None if not found or Sheets unavailable.
     """
     try:
-        from tools.google_drive import get_prompts_master
         for row in get_prompts_master():
             if (str(row.get("account", "")).strip()    == account_key and
                     str(row.get("style_key", "")).strip() == style_key):
@@ -349,7 +200,6 @@ def _get_prompt_for_style(account_key: str, style_key: str) -> str:
     hardcoded = VISUAL_STYLES.get(style_key, list(VISUAL_STYLES.values())[0]).get("t2i_base", "")
 
     try:
-        from tools.google_drive import get_prompts_master
         all_rows = get_prompts_master()
 
         matching = [
@@ -368,11 +218,11 @@ def _get_prompt_for_style(account_key: str, style_key: str) -> str:
             return hardcoded
 
         tracker_key = f"{account_key}__{style_key}"
-        tracker     = _load_prompt_tracker()
+        tracker     = load_prompt_tracker()
         last_idx    = tracker.get(tracker_key, -1)
         next_idx    = (last_idx + 1) % len(matching)
         tracker[tracker_key] = next_idx
-        _save_prompt_tracker(tracker)
+        save_prompt_tracker(tracker)
 
         chosen = matching[next_idx]
         logger.info(
@@ -415,7 +265,7 @@ def peek_next_pin_info() -> dict:
             source      = "hardcoded"
 
         order   = _get_effective_style_order(acc_key)
-        tracker = _load_tracker()
+        tracker = load_style_tracker()
         pos     = (tracker.get(acc_key, -1) + 1) % len(order)
 
         result[acc_key] = {
