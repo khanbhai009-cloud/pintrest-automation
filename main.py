@@ -269,6 +269,15 @@ async def get_all_stats():
     }
 
 # ── Mastermind Stats ───────────────────────────────────────────────────────────
+@app.get("/api/next-pins")
+async def get_next_pins():
+    """Peek at what the next pin will be for each account — no trackers advanced."""
+    try:
+        from mastermind.node_cmo import peek_next_pin_info
+        return {"status": "ok", "next_pins": peek_next_pin_info()}
+    except Exception as e:
+        return {"status": "error", "error": str(e), "next_pins": {}}
+
 @app.get("/api/mastermind/stats")
 async def get_mastermind_stats():
     jobs = scheduler.get_jobs()

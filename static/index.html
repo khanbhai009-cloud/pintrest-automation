@@ -240,6 +240,21 @@ header {
   padding:0.2rem 0.55rem; border-radius:100px;
 }
 
+/* ── Next Pins Card ───────────────────────────────────────────── */
+.next-pins-grid { display:grid; grid-template-columns:1fr 1fr; gap:0.8rem; }
+.next-pin-box {
+  background:rgba(0,0,0,0.3); border:1px solid var(--border);
+  border-radius:var(--radius-sm); padding:1rem;
+}
+.np-acct { font-family:var(--mono); font-size:0.58rem; text-transform:uppercase; letter-spacing:1px; margin-bottom:0.5rem; }
+.np-label { font-size:0.85rem; font-weight:700; margin-bottom:0.35rem; min-height:20px; }
+.np-rotation { font-family:var(--mono); font-size:0.6rem; color:var(--cyan); margin-bottom:0.4rem; }
+.np-niche { font-family:var(--mono); font-size:0.58rem; color:var(--text3); margin-bottom:0.5rem; }
+.np-source { display:inline-block; font-family:var(--mono); font-size:0.55rem; padding:0.15rem 0.45rem; border-radius:100px; margin-bottom:0.6rem; }
+.np-source.sheets { background:rgba(34,197,94,0.12); border:1px solid rgba(34,197,94,0.25); color:var(--green); }
+.np-source.hardcoded { background:rgba(249,115,22,0.12); border:1px solid rgba(249,115,22,0.25); color:var(--orange); }
+.np-prompt { font-family:var(--mono); font-size:0.6rem; color:var(--text3); line-height:1.55; border-top:1px solid var(--border); padding-top:0.5rem; margin-top:0.3rem; word-break:break-word; }
+
 /* ── Chat Interface ───────────────────────────────────────────── */
 .chat-section {
   background:var(--surface); border:1px solid var(--border);
@@ -826,6 +841,40 @@ header {
 
       </div>
 
+      <!-- ── NEXT PINS PREVIEW ────────────────────────────────────── -->
+      <div class="card" style="margin-bottom:1.5rem;border-color:rgba(34,211,238,0.2)">
+        <div class="card-head">
+          <div class="card-title" style="color:var(--cyan)">
+            <span style="width:22px;height:22px;background:linear-gradient(135deg,#0891b2,#22d3ee);border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 0 12px rgba(34,211,238,0.3)">📌</span>
+            Next Pins Preview
+          </div>
+          <button onclick="loadNextPins()" style="font-family:var(--mono);font-size:0.6rem;color:var(--cyan);background:rgba(34,211,238,0.08);border:1px solid rgba(34,211,238,0.2);border-radius:6px;padding:0.25rem 0.65rem;cursor:pointer;">↻ Refresh</button>
+        </div>
+        <div class="card-body">
+          <div style="font-family:var(--mono);font-size:0.6rem;color:var(--text3);margin-bottom:0.9rem;text-transform:uppercase;letter-spacing:1px;">
+            What fires next — style, prompt source, rotation position
+          </div>
+          <div class="next-pins-grid">
+            <div class="next-pin-box">
+              <div class="np-acct" style="color:var(--blue)">🏠 Account 1 — HomeDecor</div>
+              <div class="np-label" id="np-a1-label">Loading...</div>
+              <div class="np-rotation" id="np-a1-rotation">—</div>
+              <div class="np-niche" id="np-a1-niche">—</div>
+              <span class="np-source" id="np-a1-source">—</span>
+              <div class="np-prompt" id="np-a1-prompt">—</div>
+            </div>
+            <div class="next-pin-box">
+              <div class="np-acct" style="color:var(--accent2)">💻 Account 2 — Tech</div>
+              <div class="np-label" id="np-a2-label">Loading...</div>
+              <div class="np-rotation" id="np-a2-rotation">—</div>
+              <div class="np-niche" id="np-a2-niche">—</div>
+              <span class="np-source" id="np-a2-source">—</span>
+              <div class="np-prompt" id="np-a2-prompt">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- ── DUAL CHAT GRID ───────────────────────────────────────── -->
       <div class="chat-grid">
 
@@ -1069,6 +1118,34 @@ async function loadMastermindStats() {
     }
 
   } catch(e) { console.warn('MM stats error:', e); }
+}
+
+// ── Next Pins Preview ──────────────────────────────────────────────────────
+async function loadNextPins() {
+  try {
+    const d = await (await fetch(BASE + 'api/next-pins')).json();
+    const pins = d.next_pins || {};
+
+    const fill = (acc, prefix) => {
+      const p = pins[acc];
+      if (!p) return;
+      document.getElementById(`np-${prefix}-label`).textContent    = p.label || p.next_style || '—';
+      document.getElementById(`np-${prefix}-rotation`).textContent = `🔄 Rotation ${p.rotation || '—'}`;
+      document.getElementById(`np-${prefix}-niche`).textContent    = p.niche ? `Niche: ${p.niche}` : '';
+      const srcEl = document.getElementById(`np-${prefix}-source`);
+      if (p.source === 'Sheets') {
+        srcEl.textContent = '✅ From Sheets';
+        srcEl.className   = 'np-source sheets';
+      } else {
+        srcEl.textContent = '⚡ Hardcoded fallback';
+        srcEl.className   = 'np-source hardcoded';
+      }
+      document.getElementById(`np-${prefix}-prompt`).textContent = p.prompt_preview || '—';
+    };
+
+    fill('account_1', 'a1');
+    fill('account_2', 'a2');
+  } catch(e) { console.warn('Next pins error:', e); }
 }
 
 // ── Mastermind Run ─────────────────────────────────────────────────────────
@@ -1418,11 +1495,12 @@ async function visionStart() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 async function init() {
-  await Promise.all([loadStats(), loadMastermindStats(), loadProducts(), loadVisionStats()]);
+  await Promise.all([loadStats(), loadMastermindStats(), loadProducts(), loadVisionStats(), loadNextPins()]);
   // Periodic refresh — slow poll when idle
   setInterval(() => { loadStats(); loadMastermindStats(); }, 20000);
   setInterval(loadVisionStats, 8000);
   setInterval(loadProducts, 60000);
+  setInterval(loadNextPins, 30000);
 }
 
 init();

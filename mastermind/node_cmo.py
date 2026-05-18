@@ -181,14 +181,41 @@ def _save_tracker(tracker: dict) -> None:
     except Exception as e:
         logger.warning(f"Tracker Sheet save failed (local file already saved) — {type(e).__name__}: {e}")
 
+def _get_sheet_style_order(account_key: str) -> list | None:
+    """
+    Dynamically fetch unique style_keys for this account from Prompts_Master sheet.
+    Order preserved as-is from the sheet (top → bottom).
+    Auto-scales: new styles added to the sheet appear within 30 min (TTL cache).
+    Returns None if Sheets unavailable → caller uses hardcoded lists.
+    """
+    try:
+        from tools.google_drive import get_prompts_master
+        rows = get_prompts_master()
+        seen = []
+        for row in rows:
+            sk  = str(row.get("style_key", "")).strip()
+            acc = str(row.get("account", "")).strip()
+            if sk and acc == account_key and sk not in seen:
+                seen.append(sk)
+        return seen if seen else None
+    except Exception as e:
+        logger.warning(f"[{account_key}] Sheet style order failed — {type(e).__name__}: {e}")
+        return None
+
+
+def _get_effective_style_order(account_key: str) -> list:
+    """Sheets style list (auto-scale) → hardcoded fallback."""
+    return _get_sheet_style_order(account_key) or _ACCOUNT_STYLE_ORDERS[account_key]
+
+
 def _get_next_style(account_key: str) -> str:
     """
     Returns the NEXT style in rotation for this account.
-    Increments the tracker index and saves it.
-    Wraps back to 0 after all styles are covered.
+    Source priority: Prompts_Master sheet (auto-scale) → hardcoded ACCOUNT_STYLE_ORDERS.
+    Wraps back to index 0 after all styles covered.
     """
+    order    = _get_effective_style_order(account_key)
     tracker  = _load_tracker()
-    order    = _ACCOUNT_STYLE_ORDERS[account_key]
     last_idx = tracker.get(account_key, -1)
     next_idx = (last_idx + 1) % len(order)
 
@@ -196,18 +223,16 @@ def _get_next_style(account_key: str) -> str:
     _save_tracker(tracker)
 
     chosen = order[next_idx]
-    logger.info(
-        f"   [{account_key}] 🔄 Style Rotation: [{next_idx + 1}/{len(order)}] → {chosen}"
-    )
+    logger.info(f"   [{account_key}] Style Rotation [{next_idx+1}/{len(order)}] → {chosen}")
     return chosen
 
 
 def _peek_current_style(account_key: str) -> str:
-    """Peek at current style index WITHOUT advancing (for logging)."""
+    """Peek at NEXT style WITHOUT advancing any tracker (for logging/dashboard)."""
+    order    = _get_effective_style_order(account_key)
     tracker  = _load_tracker()
-    order    = _ACCOUNT_STYLE_ORDERS[account_key]
     idx      = tracker.get(account_key, -1)
-    curr_idx = (idx + 1) % len(order)   # what next call would return
+    curr_idx = (idx + 1) % len(order)
     return order[curr_idx]
 
 
@@ -239,84 +264,54 @@ def _save_prompt_tracker(tracker: dict) -> None:
         logger.error(f"Prompt tracker save failed — {type(e).__name__}: {e}")
 
 
+def _get_sheet_row_for_style(account_key: str, style_key: str) -> dict | None:
+    """
+    Return the first Prompts_Master row matching exact account + style_key.
+    Columns: style_key | account | label | description | t2i_base | niche_affinity | tags
+    Returns None if not found or Sheets unavailable.
+    """
+    try:
+        from tools.google_drive import get_prompts_master
+        for row in get_prompts_master():
+            if (str(row.get("account", "")).strip()    == account_key and
+                    str(row.get("style_key", "")).strip() == style_key):
+                return row
+    except Exception:
+        pass
+    return None
+
+
 def _get_prompt_for_style(account_key: str, style_key: str) -> str:
     """
-    Fetch the next rotating prompt for this account+style from Prompts_Master sheet.
+    Fetch next rotating t2i_base prompt for account+style from Prompts_Master sheet.
 
-    Column detection (flexible — any of these work):
-      Prompt : 'Prompt', 'prompt', 'T2I', 't2i', 'visual_prompt', 'Visual_Prompt'
-      Account: 'Account', 'account', 'Acc', 'acc'  (value: '1'/'2', 'account_1',
-               'homedecor'/'tech', or empty → matches all)
-      Style  : 'Style', 'style', 'StyleKey', 'style_key'  (value: style key or label,
-               or empty → matches all)
+    Sheet columns (EXACT match):
+      style_key | account | label | description | t2i_base | niche_affinity | tags
 
-    Rotation: cycles sequentially through all matching prompts via local JSON tracker.
-    Fallback: VISUAL_STYLES[style_key]['t2i_base'] on any error or no match.
+    Multiple rows with same account+style_key → multiple prompt variants → sequential rotation.
+    Fallback: hardcoded VISUAL_STYLES[style_key]['t2i_base'] if Sheets unavailable or no match.
     """
     hardcoded = VISUAL_STYLES.get(style_key, list(VISUAL_STYLES.values())[0]).get("t2i_base", "")
 
     try:
         from tools.google_drive import get_prompts_master
-        all_prompts = get_prompts_master()
+        all_rows = get_prompts_master()
 
-        if not all_prompts:
-            logger.warning(f"   [{account_key}] Prompts_Master empty — using hardcoded t2i_base")
-            return hardcoded
-
-        sample = all_prompts[0]
-
-        # Detect prompt column
-        prompt_col = next(
-            (c for c in ["Prompt", "prompt", "T2I", "t2i", "visual_prompt", "Visual_Prompt"]
-             if c in sample),
-            None
-        )
-        if not prompt_col:
-            logger.warning(f"   [{account_key}] No prompt column found in Prompts_Master — using hardcoded t2i_base")
-            return hardcoded
-
-        # Detect account + style columns
-        acc_col   = next((c for c in ["Account", "account", "Acc", "acc"] if c in sample), None)
-        style_col = next((c for c in ["Style", "style", "StyleKey", "style_key"] if c in sample), None)
-
-        # Build matching keywords
-        acc_num      = account_key.split("_")[-1]
-        acc_keywords = [acc_num, account_key, account_key.replace("_", "")]
-        if acc_num == "1":
-            acc_keywords += ["homedecor", "home", "decor", "acc1"]
-        else:
-            acc_keywords += ["tech", "techsetup", "acc2"]
-
-        style_label    = VISUAL_STYLES.get(style_key, {}).get("label", "").lower()
-        style_keywords = [style_key.lower(), style_key.replace("_", " ").lower(), style_label]
-
-        # Filter matching rows
-        matching = []
-        for row in all_prompts:
-            text = str(row.get(prompt_col, "")).strip()
-            if not text:
-                continue
-
-            if acc_col:
-                row_acc = str(row.get(acc_col, "")).strip().lower()
-                if row_acc and not any(kw in row_acc for kw in acc_keywords):
-                    continue
-
-            if style_col:
-                row_style = str(row.get(style_col, "")).strip().lower()
-                if row_style and not any(kw in row_style for kw in style_keywords):
-                    continue
-
-            matching.append(text)
+        matching = [
+            str(row.get("t2i_base", "")).strip()
+            for row in all_rows
+            if str(row.get("account", "")).strip()    == account_key
+            and str(row.get("style_key", "")).strip() == style_key
+            and str(row.get("t2i_base", "")).strip()
+        ]
 
         if not matching:
             logger.warning(
-                f"   [{account_key}] No Prompts_Master row matched style='{style_key}' "
+                f"   [{account_key}] No Prompts_Master row for style='{style_key}' "
                 f"— using hardcoded t2i_base"
             )
             return hardcoded
 
-        # Sequential rotation
         tracker_key = f"{account_key}__{style_key}"
         tracker     = _load_prompt_tracker()
         last_idx    = tracker.get(tracker_key, -1)
@@ -327,7 +322,7 @@ def _get_prompt_for_style(account_key: str, style_key: str) -> str:
         chosen = matching[next_idx]
         logger.info(
             f"   [{account_key}] Prompt from Sheets [{next_idx+1}/{len(matching)}] "
-            f"for style '{style_key}' ({len(chosen)} chars)"
+            f"style='{style_key}' ({len(chosen)} chars)"
         )
         return chosen
 
@@ -337,6 +332,47 @@ def _get_prompt_for_style(account_key: str, style_key: str) -> str:
             f"{type(e).__name__}: {e} | using hardcoded t2i_base"
         )
         return hardcoded
+
+
+def peek_next_pin_info() -> dict:
+    """
+    Public function — peek at the next pin for each account WITHOUT advancing trackers.
+    Called by /api/next-pins dashboard endpoint.
+    Returns style label, niche, prompt preview, source (Sheets/hardcoded), rotation position.
+    """
+    result = {}
+    for acc_key in ["account_1", "account_2"]:
+        next_style = _peek_current_style(acc_key)
+        sheet_row  = _get_sheet_row_for_style(acc_key, next_style)
+        style_meta = VISUAL_STYLES.get(next_style, {})
+
+        if sheet_row:
+            label       = str(sheet_row.get("label", "")).strip() or style_meta.get("label", next_style)
+            niche       = str(sheet_row.get("niche_affinity", "")).strip()
+            prompt_prev = (str(sheet_row.get("t2i_base", "")).strip()[:200] + "...") if sheet_row.get("t2i_base") else ""
+            tags        = str(sheet_row.get("tags", "")).strip()
+            source      = "Sheets"
+        else:
+            label       = style_meta.get("label", next_style)
+            niche       = ", ".join(style_meta.get("niche_affinity", []))
+            prompt_prev = style_meta.get("t2i_base", "")[:200] + "..."
+            tags        = ", ".join(style_meta.get("tags", []))
+            source      = "hardcoded"
+
+        order   = _get_effective_style_order(acc_key)
+        tracker = _load_tracker()
+        pos     = (tracker.get(acc_key, -1) + 1) % len(order)
+
+        result[acc_key] = {
+            "next_style":     next_style,
+            "label":          label,
+            "niche":          niche,
+            "prompt_preview": prompt_prev,
+            "tags":           tags,
+            "source":         source,
+            "rotation":       f"{pos + 1}/{len(order)}",
+        }
+    return result
 
 
 # ══════════════════════════════════════════════════════════════════════════════

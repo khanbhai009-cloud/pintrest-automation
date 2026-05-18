@@ -108,22 +108,29 @@ def _open_worksheet(sheet_name: str):
     return client.open_by_key(SPREADSHEET_ID).worksheet(sheet_name)
 
 
-# ── Prompts_Master — cache after first successful load ────────────────────────
-_prompts_cache = None
+# ── Prompts_Master — TTL cache (30 min) so new rows auto-pickup ───────────────
+import time as _time
+_prompts_cache: list | None = None
+_prompts_cache_ts: float    = 0.0
+_PROMPTS_TTL                = 1800   # 30 minutes
 
 def get_prompts_master() -> list:
     """
-    Fetch all rows from the Prompts_Master tab.
-    Cached in memory after first successful load (resets on app restart).
+    Fetch all rows from Prompts_Master tab.
+    TTL-cached (30 min) — new rows added to the sheet are picked up automatically.
     Raises on connection failure — caller handles fallback.
+
+    Expected sheet columns: style_key | account | label | description | t2i_base | niche_affinity | tags
     """
-    global _prompts_cache
-    if _prompts_cache is not None:
+    global _prompts_cache, _prompts_cache_ts
+    now = _time.time()
+    if _prompts_cache is not None and (now - _prompts_cache_ts) < _PROMPTS_TTL:
         return _prompts_cache
     ws      = _open_worksheet("Prompts_Master")
     records = ws.get_all_records()
-    _prompts_cache = records
-    logger.info(f"✅ [Prompts_Master] {len(records)} prompts loaded from sheet.")
+    _prompts_cache    = records
+    _prompts_cache_ts = now
+    logger.info(f"✅ [Prompts_Master] {len(records)} prompts loaded (TTL refreshed).")
     return records
 
 
