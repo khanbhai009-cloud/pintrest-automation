@@ -68,7 +68,12 @@ async def vision_feeder_loop():
 
             processed = await asyncio.to_thread(run_feeder_agent)
 
-            if processed == -2:
+            if processed == -3:
+                # Daily limit (10 images) reached — wait until tomorrow
+                logger.info("🛑 Vision Feeder: daily limit reached — sleeping 24 hours...")
+                state["vision_feeder_paused"] = False
+                await asyncio.sleep(86400)
+            elif processed == -2:
                 # Stop flag set inside visions_ai — sync our state
                 state["vision_feeder_paused"] = True
                 logger.info("👁️ Vision Feeder: paused by user.")
@@ -77,7 +82,7 @@ async def vision_feeder_loop():
                 logger.warning("🚫 Vision Feeder: 429 quota hit — sleeping 24 hours...")
                 await asyncio.sleep(86400)
             elif processed == 0:
-                logger.info("👁️ Vision Feeder: Drive empty or limit reached — sleeping 5 minutes...")
+                logger.info("👁️ Vision Feeder: Drive empty — sleeping 5 minutes...")
                 await asyncio.sleep(300)
             else:
                 logger.info(f"👁️ Vision Feeder: {processed} image(s) processed.")

@@ -194,9 +194,9 @@ def run_feeder_agent():
     done_today = _get_today_processed()
     _vision_stats["processed_today"] = done_today
     if done_today >= DAILY_IMAGE_LIMIT:
-        logging.info(f"🛑 Daily limit reached ({DAILY_IMAGE_LIMIT} images). Resuming tomorrow.")
+        logging.info(f"🛑 Daily limit reached ({DAILY_IMAGE_LIMIT} images). Sleeping 24 hours.")
         _vision_stats["status"] = "limit_reached"
-        return 0
+        return -3  # Caller must sleep 24 hours
 
     remaining = DAILY_IMAGE_LIMIT - done_today
     _vision_stats["status"] = "scanning"
