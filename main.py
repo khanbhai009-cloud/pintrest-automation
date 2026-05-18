@@ -16,7 +16,7 @@ from mastermind.graph import run_mastermind
 from tools.google_drive import get_all_products
 from tools.llm import chat
 from config import GEMINI_API_KEY, GEMINI_CHAT_MODEL
-from tools.visions_ai import run_feeder_agent
+from tools.visions_ai import run_feeder_agent, get_vision_stats, request_stop as vf_request_stop, request_start as vf_request_start
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
@@ -44,6 +44,7 @@ state = {
     "mastermind_fallback": False,
     "stop_requested": False,
     "vision_feeder_running": False,
+    "vision_feeder_paused": False,
 }
 
 scheduler = AsyncIOScheduler(timezone="America/New_York")
@@ -53,25 +54,37 @@ async def vision_feeder_loop():
     """
     Drive folder continuously check karta hai.
     Images milne par analyze karke Google Sheet mein daal deta hai.
-    Agar Drive empty ho toh 5 min baad dobara check karta hai.
+    Dashboard se pause/resume ho sakta hai bina restart ke.
     """
     state["vision_feeder_running"] = True
+    state["vision_feeder_paused"]  = False
     logger.info("👁️ Vision Feeder Agent started in background...")
     while True:
         try:
+            # Paused state — check every 3 seconds, don't process
+            if state["vision_feeder_paused"]:
+                await asyncio.sleep(3)
+                continue
+
             processed = await asyncio.to_thread(run_feeder_agent)
-            if processed == -1:
+
+            if processed == -2:
+                # Stop flag set inside visions_ai — sync our state
+                state["vision_feeder_paused"] = True
+                logger.info("👁️ Vision Feeder: paused by user.")
+                await asyncio.sleep(3)
+            elif processed == -1:
                 logger.warning("🚫 Vision Feeder: 429 quota hit — sleeping 24 hours...")
-                await asyncio.sleep(86400)  # 24 hours
+                await asyncio.sleep(86400)
             elif processed == 0:
                 logger.info("👁️ Vision Feeder: Drive empty or limit reached — sleeping 5 minutes...")
-                await asyncio.sleep(300)  # 5 minutes
+                await asyncio.sleep(300)
             else:
                 logger.info(f"👁️ Vision Feeder: {processed} image(s) processed.")
-                await asyncio.sleep(10)   # short breather before next scan
+                await asyncio.sleep(10)
         except Exception as e:
             logger.error(f"👁️ Vision Feeder Error: {e}")
-            await asyncio.sleep(60)       # error pe 1 min wait
+            await asyncio.sleep(60)
 
 # ── Mastermind Job ─────────────────────────────────────────────────────────────
 async def mastermind_scheduled_job(trigger: str):
@@ -310,6 +323,35 @@ async def run_mm_a2(background_tasks: BackgroundTasks):
 async def stop_mastermind():
     state["stop_requested"] = True
     return {"status": "stop_requested", "message": "Stop signal sent. Current cycle will finish gracefully."}
+
+# ── Vision Feeder Controls ─────────────────────────────────────────────────────
+@app.get("/api/vision/stats")
+async def vision_stats():
+    vs = get_vision_stats()
+    return {
+        "running":         state["vision_feeder_running"],
+        "paused":          state["vision_feeder_paused"],
+        "queue_count":     vs["queue_count"],
+        "processed_today": vs["processed_today"],
+        "daily_limit":     vs["daily_limit"],
+        "last_file":       vs["last_file"],
+        "last_time":       vs["last_time"],
+        "status":          vs["status"],
+    }
+
+@app.post("/api/vision/stop")
+async def vision_stop():
+    vf_request_stop()
+    state["vision_feeder_paused"] = True
+    logger.info("👁️ Vision Feeder paused via dashboard.")
+    return {"status": "paused", "message": "Vision Feeder paused. Current image will finish processing."}
+
+@app.post("/api/vision/start")
+async def vision_start():
+    vf_request_start()
+    state["vision_feeder_paused"] = False
+    logger.info("👁️ Vision Feeder resumed via dashboard.")
+    return {"status": "running", "message": "Vision Feeder resumed."}
 
 # ── Account Triggers (legacy + new) ───────────────────────────────────────────
 @app.post("/api/run-account1")

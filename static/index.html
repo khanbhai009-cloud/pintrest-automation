@@ -458,6 +458,111 @@ header {
 .tag-purple { background:rgba(168,85,247,0.1); color:var(--accent2); border:1px solid rgba(168,85,247,0.2); }
 .tag-blue   { background:rgba(59,130,246,0.1);  color:var(--blue);   border:1px solid rgba(59,130,246,0.2); }
 .tag-red    { background:rgba(239,68,68,0.1);   color:var(--red);    border:1px solid rgba(239,68,68,0.2); }
+
+/* ── Vision Feeder Card ───────────────────────────────────────── */
+.vision-card {
+  background: var(--surface);
+  border: 1px solid rgba(34,211,238,0.18);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+}
+.vision-head {
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 1.1rem 1.4rem;
+  border-bottom: 1px solid rgba(34,211,238,0.12);
+  background: rgba(34,211,238,0.03);
+}
+.vision-title {
+  display:flex; align-items:center; gap:0.6rem;
+  font-size:0.8rem; font-weight:700; letter-spacing:1px;
+  text-transform:uppercase; color:var(--cyan);
+}
+.vision-icon {
+  width:26px; height:26px; border-radius:7px;
+  background: linear-gradient(135deg, #0891b2, #22d3ee);
+  display:flex; align-items:center; justify-content:center;
+  font-size:13px; box-shadow:0 0 14px rgba(34,211,238,0.35);
+  flex-shrink:0;
+}
+.vision-body { padding: 1.2rem 1.4rem; }
+.vision-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.8rem;
+  margin-bottom: 1.2rem;
+}
+@media(max-width:700px) { .vision-meta-grid { grid-template-columns: repeat(2,1fr); } }
+.vision-stat {
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(34,211,238,0.1);
+  border-radius: var(--radius-sm);
+  padding: 0.8rem 1rem;
+  text-align: center;
+}
+.vision-stat-label {
+  font-family: var(--mono); font-size: 0.58rem; color: var(--text3);
+  text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 0.35rem;
+}
+.vision-stat-val {
+  font-size: 1.6rem; font-weight: 800; line-height: 1;
+  color: var(--cyan);
+}
+.vision-stat-val.v-green  { color: var(--green); }
+.vision-stat-val.v-orange { color: var(--orange); }
+.vision-stat-val.v-purple { color: var(--accent2); }
+.vision-stat-sub { font-family:var(--mono); font-size:0.58rem; color:var(--text3); margin-top:0.25rem; }
+
+/* Progress Bar */
+.vision-progress-wrap { margin-bottom: 1.2rem; }
+.vision-progress-top {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 0.45rem;
+}
+.vision-progress-label { font-family:var(--mono); font-size:0.62rem; color:var(--text3); text-transform:uppercase; letter-spacing:1px; }
+.vision-progress-count { font-family:var(--mono); font-size:0.72rem; font-weight:600; color:var(--cyan); }
+.vision-progress-bar {
+  width: 100%; height: 7px; border-radius: 100px;
+  background: rgba(34,211,238,0.1); border: 1px solid rgba(34,211,238,0.15);
+  overflow: hidden;
+}
+.vision-progress-fill {
+  height: 100%; border-radius: 100px;
+  background: linear-gradient(90deg, #0891b2, #22d3ee);
+  transition: width 0.6s ease;
+  box-shadow: 0 0 8px rgba(34,211,238,0.5);
+}
+
+/* Status + Controls row */
+.vision-controls-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; flex-wrap: wrap;
+}
+.vision-status-info { display:flex; align-items:center; gap:0.7rem; flex:1; min-width:0; }
+.vision-status-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: var(--text3);
+}
+.vision-status-dot.active { background: var(--green); box-shadow: 0 0 8px rgba(34,197,94,0.7); animation: pulse-dot 2s infinite; }
+.vision-status-dot.paused { background: var(--orange); }
+.vision-status-dot.error  { background: var(--red); }
+.vision-status-dot.limit  { background: var(--accent2); }
+.vision-status-text {
+  font-family: var(--mono); font-size: 0.65rem; color: var(--text2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 300px;
+}
+.vision-last-file {
+  font-family: var(--mono); font-size: 0.6rem; color: var(--text3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 220px;
+}
+.vision-btn-group { display:flex; gap:0.6rem; flex-shrink:0; }
+.btn-cyan {
+  background: rgba(34,211,238,0.1); color: var(--cyan);
+  border: 1px solid rgba(34,211,238,0.3);
+}
+.btn-cyan:not(:disabled):hover { background: rgba(34,211,238,0.22); }
 </style>
 </head>
 <body>
@@ -511,6 +616,77 @@ header {
           <div class="stat-label">Today</div>
           <div class="stat-val c-purple" id="s-today">0</div>
           <div class="stat-sub">Pins posted today</div>
+        </div>
+      </div>
+
+      <!-- ── VISION FEEDER CARD ─────────────────────────────────── -->
+      <div class="vision-card">
+        <div class="vision-head">
+          <div class="vision-title">
+            <div class="vision-icon">👁️</div>
+            Vision Feeder Agent
+          </div>
+          <div style="display:flex;align-items:center;gap:0.8rem;">
+            <div class="badge badge-idle" id="vf-badge">IDLE</div>
+            <span style="font-family:var(--mono);font-size:0.6rem;color:var(--text3);">Google Drive → Gemini Vision → Prompts Sheet</span>
+          </div>
+        </div>
+        <div class="vision-body">
+
+          <!-- 4 mini stat boxes -->
+          <div class="vision-meta-grid">
+            <div class="vision-stat">
+              <div class="vision-stat-label">Processed Today</div>
+              <div class="vision-stat-val" id="vf-processed">0</div>
+              <div class="vision-stat-sub">images analyzed</div>
+            </div>
+            <div class="vision-stat">
+              <div class="vision-stat-label">Daily Limit</div>
+              <div class="vision-stat-val v-purple" id="vf-limit">10</div>
+              <div class="vision-stat-sub">max per day</div>
+            </div>
+            <div class="vision-stat">
+              <div class="vision-stat-label">In Drive Queue</div>
+              <div class="vision-stat-val v-orange" id="vf-queue">—</div>
+              <div class="vision-stat-sub">images pending</div>
+            </div>
+            <div class="vision-stat">
+              <div class="vision-stat-label">Remaining</div>
+              <div class="vision-stat-val v-green" id="vf-remaining">—</div>
+              <div class="vision-stat-sub">slots today</div>
+            </div>
+          </div>
+
+          <!-- Daily progress bar -->
+          <div class="vision-progress-wrap">
+            <div class="vision-progress-top">
+              <span class="vision-progress-label">Daily Processing Progress</span>
+              <span class="vision-progress-count" id="vf-progress-text">0 / 10 images</span>
+            </div>
+            <div class="vision-progress-bar">
+              <div class="vision-progress-fill" id="vf-progress-fill" style="width:0%"></div>
+            </div>
+          </div>
+
+          <!-- Status row + Stop/Start buttons -->
+          <div class="vision-controls-row">
+            <div class="vision-status-info">
+              <div class="vision-status-dot" id="vf-dot"></div>
+              <div>
+                <div class="vision-status-text" id="vf-status-text">Initializing...</div>
+                <div class="vision-last-file" id="vf-last-file">Last file: —</div>
+              </div>
+            </div>
+            <div class="vision-btn-group">
+              <button class="btn btn-cyan btn-sm" id="vf-btn-start" onclick="visionStart()">
+                ▶ Start Feeder
+              </button>
+              <button class="btn btn-red btn-sm" id="vf-btn-stop" onclick="visionStop()">
+                ⏹ Stop Feeder
+              </button>
+            </div>
+          </div>
+
         </div>
       </div>
 
@@ -1141,11 +1317,111 @@ function autoResize(el) {
   el.style.height = Math.min(el.scrollHeight, 120) + 'px';
 }
 
+// ── Vision Feeder ───────────────────────────────────────────────────────────
+const VF_STATUS_MAP = {
+  idle:         { label: 'Idle — waiting for next scan',      dot: '',        badge: 'idle'    },
+  scanning:     { label: 'Scanning Google Drive...',          dot: 'active',  badge: 'running' },
+  processing:   { label: 'Processing images...',              dot: 'active',  badge: 'running' },
+  paused:       { label: 'Paused by user',                    dot: 'paused',  badge: 'idle'    },
+  disabled:     { label: 'Disabled — credentials not set',    dot: 'error',   badge: 'idle'    },
+  limit_reached:{ label: 'Daily limit reached — resumes tomorrow', dot: 'limit','badge': 'idle'},
+  error:        { label: 'Error — retrying in 60s',           dot: 'error',   badge: 'warn'    },
+  running:      { label: 'Active — running loop',             dot: 'active',  badge: 'running' },
+};
+
+async function loadVisionStats() {
+  try {
+    const d = await (await fetch(BASE + 'api/vision/stats')).json();
+
+    // Stat boxes
+    const processed = d.processed_today ?? 0;
+    const limit     = d.daily_limit     ?? 10;
+    const queue     = d.queue_count     ?? 0;
+    const remaining = Math.max(0, limit - processed);
+
+    document.getElementById('vf-processed').textContent = processed;
+    document.getElementById('vf-limit').textContent     = limit;
+    document.getElementById('vf-queue').textContent     = queue;
+    document.getElementById('vf-remaining').textContent = remaining;
+
+    // Progress bar
+    const pct = limit > 0 ? Math.min(100, Math.round((processed / limit) * 100)) : 0;
+    document.getElementById('vf-progress-fill').style.width = pct + '%';
+    document.getElementById('vf-progress-text').textContent = `${processed} / ${limit} images`;
+
+    // Status
+    const rawStatus = d.paused ? 'paused' : (d.status || 'idle');
+    const info = VF_STATUS_MAP[rawStatus] || VF_STATUS_MAP['idle'];
+
+    const dot   = document.getElementById('vf-dot');
+    const badge = document.getElementById('vf-badge');
+    const stTxt = document.getElementById('vf-status-text');
+
+    dot.className = 'vision-status-dot ' + (info.dot || '');
+
+    // Show actual status string if it's a "downloading/analyzing" message
+    const displayStatus = (rawStatus.startsWith('downloading') || rawStatus.startsWith('analyzing'))
+      ? '🔄 ' + rawStatus
+      : info.label;
+    stTxt.textContent = displayStatus;
+
+    if (info.badge === 'running') {
+      badge.textContent = 'ACTIVE'; badge.className = 'badge badge-running';
+    } else if (rawStatus === 'paused' || rawStatus === 'limit_reached') {
+      badge.textContent = rawStatus === 'paused' ? 'PAUSED' : 'LIMIT HIT';
+      badge.className = 'badge badge-warn';
+    } else if (rawStatus === 'error') {
+      badge.textContent = 'ERROR'; badge.className = 'badge badge-warn';
+      badge.style.color = 'var(--red)';
+    } else {
+      badge.textContent = 'IDLE'; badge.className = 'badge badge-idle';
+    }
+
+    // Last file processed
+    const lastFile = d.last_file && d.last_file !== '—' ? d.last_file : null;
+    const lastTime = d.last_time && d.last_time !== '—' ? d.last_time : null;
+    document.getElementById('vf-last-file').textContent = lastFile
+      ? `Last: ${lastFile.substring(0, 36)}${lastFile.length > 36 ? '…' : ''} ${lastTime ? '@ ' + lastTime : ''}`
+      : 'No images processed yet today';
+
+    // Button states
+    const isPaused = d.paused || !d.running;
+    document.getElementById('vf-btn-start').disabled = !isPaused;
+    document.getElementById('vf-btn-stop').disabled  = isPaused;
+
+  } catch(e) { console.warn('Vision stats error:', e); }
+}
+
+async function visionStop() {
+  document.getElementById('vf-btn-stop').disabled  = true;
+  document.getElementById('vf-btn-start').disabled = false;
+  try {
+    await fetch(BASE + 'api/vision/stop', { method: 'POST' });
+    toast('⏹ Vision Feeder paused — current image will finish first', 'var(--orange)');
+    setTimeout(loadVisionStats, 500);
+  } catch(e) {
+    toast('❌ Could not pause Vision Feeder', 'var(--red)');
+  }
+}
+
+async function visionStart() {
+  document.getElementById('vf-btn-start').disabled = true;
+  document.getElementById('vf-btn-stop').disabled  = false;
+  try {
+    await fetch(BASE + 'api/vision/start', { method: 'POST' });
+    toast('▶ Vision Feeder resumed — scanning Drive...', 'var(--cyan)');
+    setTimeout(loadVisionStats, 500);
+  } catch(e) {
+    toast('❌ Could not resume Vision Feeder', 'var(--red)');
+  }
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 async function init() {
-  await Promise.all([loadStats(), loadMastermindStats(), loadProducts()]);
+  await Promise.all([loadStats(), loadMastermindStats(), loadProducts(), loadVisionStats()]);
   // Periodic refresh — slow poll when idle
   setInterval(() => { loadStats(); loadMastermindStats(); }, 20000);
+  setInterval(loadVisionStats, 8000);
   setInterval(loadProducts, 60000);
 }
 

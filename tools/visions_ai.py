@@ -140,6 +140,41 @@ def move_file_in_drive(file_id: str, old_parent: str, new_parent: str):
 DAILY_IMAGE_LIMIT = 10
 _today_count = {"date": None, "count": 0}
 
+# ── Stop / Start Control Flag ──────────────────────────────────────────────
+_stop_flag = {"value": False}
+
+def request_stop():
+    """Dashboard se stop signal bhejo."""
+    _stop_flag["value"] = True
+    _vision_stats["status"] = "paused"
+    logging.info("🛑 Vision Feeder: stop requested.")
+
+def request_start():
+    """Dashboard se start signal bhejo."""
+    _stop_flag["value"] = False
+    _vision_stats["status"] = "running"
+    logging.info("▶️ Vision Feeder: start requested.")
+
+def is_stop_requested() -> bool:
+    return _stop_flag["value"]
+
+# ── Real-Time Stats ────────────────────────────────────────────────────────
+_vision_stats = {
+    "queue_count":      0,
+    "processed_today":  0,
+    "daily_limit":      DAILY_IMAGE_LIMIT,
+    "last_file":        "—",
+    "last_time":        "—",
+    "status":           "idle",
+}
+
+def get_vision_stats() -> dict:
+    """Dashboard ke liye live stats return karo."""
+    _vision_stats["processed_today"] = _get_today_processed()
+    _vision_stats["daily_limit"]     = DAILY_IMAGE_LIMIT
+    return dict(_vision_stats)
+
+# ── Internal Helpers ───────────────────────────────────────────────────────
 def _get_today_processed():
     """Aaj kitni images process hui hain."""
     from datetime import date
@@ -155,69 +190,112 @@ def _increment_today():
     _today_count["count"] += 1
 
 def run_feeder_agent():
-    """Main Drive Loop - Returns number of images processed"""
+    """Main Drive Loop - Returns number of images processed.
+    Returns: int processed, or -1 on quota hit, or -2 if stop requested."""
+
+    if is_stop_requested():
+        _vision_stats["status"] = "paused"
+        return -2
+
     if drive_service is None:
         logging.warning("⚠️ Vision Feeder disabled — Google credentials not configured.")
+        _vision_stats["status"] = "disabled"
         return 0
 
     # Daily limit check
     done_today = _get_today_processed()
+    _vision_stats["processed_today"] = done_today
     if done_today >= DAILY_IMAGE_LIMIT:
         logging.info(f"🛑 Daily limit reached ({DAILY_IMAGE_LIMIT} images). Resuming tomorrow.")
+        _vision_stats["status"] = "limit_reached"
         return 0
 
     remaining = DAILY_IMAGE_LIMIT - done_today
+    _vision_stats["status"] = "scanning"
 
     # Check Drive for images
-    results = drive_service.files().list(
-        q=f"'{DRIVE_INPUT_FOLDER_ID}' in parents and trashed=false",
-        pageSize=remaining,
-        fields="files(id, name, mimeType)"
-    ).execute()
-    
+    try:
+        results = drive_service.files().list(
+            q=f"'{DRIVE_INPUT_FOLDER_ID}' in parents and trashed=false",
+            pageSize=remaining + 20,
+            fields="files(id, name, mimeType)"
+        ).execute()
+    except Exception as e:
+        logging.error(f"❌ Drive list error: {e}")
+        _vision_stats["status"] = "error"
+        return 0
+
     items = results.get('files', [])
-    images = [f for f in items if f['mimeType'].startswith('image/')][:remaining]
+    images = [f for f in items if f['mimeType'].startswith('image/')]
+
+    # Update queue count (total images in Drive, not capped)
+    _vision_stats["queue_count"] = len(images)
+    images = images[:remaining]
 
     if not images:
+        _vision_stats["status"] = "idle"
         return 0
 
     logging.info(f"🚀 Found {len(images)} images | Processed today: {done_today}/{DAILY_IMAGE_LIMIT}")
-    
+    _vision_stats["status"] = "processing"
+
+    processed_count = 0
     for img in images:
-        file_id = img['id']
+        # Check stop between each image
+        if is_stop_requested():
+            logging.info("🛑 Vision Feeder: stop flag detected mid-loop. Halting.")
+            _vision_stats["status"] = "paused"
+            break
+
+        file_id   = img['id']
         file_name = img['name']
         temp_path = f"/tmp/temp_{file_name}"
-        
+
         try:
             logging.info(f"📥 Downloading: {file_name}")
+            _vision_stats["status"] = f"downloading: {file_name[:30]}"
             download_from_drive(file_id, temp_path)
-            
+
             logging.info(f"🔍 Analyzing aesthetic DNA...")
+            _vision_stats["status"] = f"analyzing: {file_name[:30]}"
             extracted_dna = analyze_image(temp_path)
-            
+
             logging.info("📝 Pushing to Prompts_Master Sheet...")
             append_to_sheet(extracted_dna)
-            
+
             logging.info("🗂️ Moving to Processed Folder...")
             move_file_in_drive(file_id, DRIVE_INPUT_FOLDER_ID, DRIVE_PROCESSED_FOLDER_ID)
-            
-            # Cleanup local temp file
+
             if os.path.exists(temp_path):
                 os.remove(temp_path)
-            
+
             _increment_today()
+            processed_count += 1
+
+            # Update stats after each image
+            from datetime import datetime
+            _vision_stats["last_file"]       = file_name
+            _vision_stats["last_time"]       = datetime.now().strftime("%I:%M %p")
+            _vision_stats["processed_today"] = _get_today_processed()
+            _vision_stats["queue_count"]     = max(0, _vision_stats["queue_count"] - 1)
+            _vision_stats["status"]          = "processing"
+
             logging.info(f"✅ Today: {_get_today_processed()}/{DAILY_IMAGE_LIMIT} images done.")
             logging.info("⏳ Waiting 30 seconds for next scan (Rate Limit Safety)...")
             time.sleep(30)
-            
+
         except Exception as e:
             logging.error(f"❌ Error with {file_name}: {e}")
+            _vision_stats["status"] = "error"
             if os.path.exists(temp_path):
                 os.remove(temp_path)
             logging.info("⏳ Pausing for 60 seconds due to error...")
             time.sleep(60)
-            
-    return len(images)
+
+    if not is_stop_requested():
+        _vision_stats["status"] = "idle" if processed_count == 0 else "idle"
+
+    return processed_count
 
 # ══════════════════════════════════════════════════════════════════════════════
 # AUTO-PILOT TRIGGER
