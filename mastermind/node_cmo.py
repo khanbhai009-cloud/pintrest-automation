@@ -244,24 +244,79 @@ def _peek_current_style(account_key: str) -> str:
 _PROMPT_TRACKER_FILE = "data/prompt_tracker_local.json"
 
 
+def _get_prompt_tracker_sheet():
+    """Connect to Prompt_Tracker tab in existing Google Sheet."""
+    creds_dict = json.loads(GOOGLE_CREDS_JSON)
+    creds = Credentials.from_service_account_info(creds_dict, scopes=[
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ])
+    client = gspread.authorize(creds)
+    return client.open_by_key(SPREADSHEET_ID).worksheet("Prompt_Tracker")
+
+
 def _load_prompt_tracker() -> dict:
-    """Load per-style prompt rotation indices from local JSON file."""
+    """
+    Load per-style prompt rotation indices.
+    Priority: Google Sheets (Prompt_Tracker tab) → Local JSON fallback.
+    Sheet columns: tracker_key | last_idx
+    """
+    # 1. Try Google Sheets
+    try:
+        sheet   = _get_prompt_tracker_sheet()
+        records = sheet.get_all_records()
+        if records:
+            data = {str(r["tracker_key"]): int(r["last_idx"]) for r in records if r.get("tracker_key") != ""}
+            logger.info(f"✅ Prompt_Tracker loaded from Sheets — {len(data)} keys")
+            return data
+    except Exception as e:
+        logger.warning(f"Prompt_Tracker Sheet load failed — {type(e).__name__}: {e} | trying local file")
+
+    # 2. Local JSON fallback
     try:
         if os.path.exists(_PROMPT_TRACKER_FILE):
             with open(_PROMPT_TRACKER_FILE, "r") as f:
-                return json.load(f)
+                data = json.load(f)
+                logger.info(f"Prompt tracker loaded from local file: {len(data)} keys")
+                return data
     except Exception as e:
-        logger.warning(f"Prompt tracker load failed — {type(e).__name__}: {e}")
+        logger.warning(f"Prompt tracker local file failed — {type(e).__name__}: {e}")
     return {}
 
 
 def _save_prompt_tracker(tracker: dict) -> None:
+    """
+    Save per-style prompt rotation indices.
+    Writes to Google Sheets (Prompt_Tracker tab) + always writes local JSON backup.
+    Sheet columns: tracker_key | last_idx
+    """
+    # Always save to local file first (instant, no API dependency)
     try:
         os.makedirs(os.path.dirname(_PROMPT_TRACKER_FILE), exist_ok=True)
         with open(_PROMPT_TRACKER_FILE, "w") as f:
             json.dump(tracker, f, indent=2)
     except Exception as e:
-        logger.error(f"Prompt tracker save failed — {type(e).__name__}: {e}")
+        logger.error(f"Prompt tracker local save failed — {type(e).__name__}: {e}")
+
+    # Also try Google Sheets (best effort, silent fail)
+    try:
+        sheet   = _get_prompt_tracker_sheet()
+        records = sheet.get_all_records()
+        existing_keys = {r["tracker_key"]: i + 2 for i, r in enumerate(records) if r.get("tracker_key")}
+
+        if not records:
+            # Write header first
+            sheet.append_row(["tracker_key", "last_idx"])
+
+        for key, idx in tracker.items():
+            if key in existing_keys:
+                sheet.update(f"B{existing_keys[key]}", [[idx]])
+            else:
+                sheet.append_row([key, idx])
+
+        logger.info(f"✅ Prompt_Tracker saved to Sheets — {len(tracker)} keys")
+    except Exception as e:
+        logger.warning(f"Prompt_Tracker Sheet save failed (local file already saved) — {type(e).__name__}: {e}")
 
 
 def _get_sheet_row_for_style(account_key: str, style_key: str) -> dict | None:
