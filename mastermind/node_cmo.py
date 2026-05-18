@@ -82,7 +82,8 @@ def _pick_ratio() -> str:
 # Cycles through ALL styles one by one. Tracker saved to JSON file.
 # ══════════════════════════════════════════════════════════════════════════════
 
-_TRACKER_FILE = "data/style_tracker.json"
+_TRACKER_FILE       = "data/style_tracker.json"   # legacy (unused — kept for reference)
+_LOCAL_TRACKER_FILE = "data/style_tracker_local.json"  # local JSON fallback when Sheets unavailable
 
 # Ordered style rotation lists per account — all styles covered in sequence
 ACCOUNT_1_STYLE_ORDER = [
@@ -125,37 +126,60 @@ def _get_tracker_sheet():
     return client.open_by_key(SPREADSHEET_ID).worksheet("Style_Tracker")
     
 def _load_tracker() -> dict:
-    """Load style rotation tracker from Google Sheet."""
+    """
+    Load style rotation tracker.
+    Priority: Google Sheets → Local JSON file → empty dict (starts from 0).
+    """
+    # 1. Try Google Sheets
     try:
-        sheet = _get_tracker_sheet()
+        sheet   = _get_tracker_sheet()
         records = sheet.get_all_records()
         if records:
-            # First row of data (Row 2 in sheet)
-            return records[0] 
+            data = records[0]
+            # Convert string values from Sheets to int
+            return {k: int(v) for k, v in data.items() if v != ""}
     except Exception as e:
-        logger.warning(f"⚠️ Tracker load failed (Sheet empty ya error): {e}")
+        logger.warning(f"Tracker Sheet failed — {type(e).__name__}: {e} | trying local file")
+
+    # 2. Local JSON fallback
+    try:
+        if os.path.exists(_LOCAL_TRACKER_FILE):
+            with open(_LOCAL_TRACKER_FILE, "r") as f:
+                data = json.load(f)
+                logger.info(f"Tracker loaded from local file: {data}")
+                return data
+    except Exception as e:
+        logger.warning(f"Local tracker file failed — {type(e).__name__}: {e} | starting from index 0")
+
     return {}
 
 
 def _save_tracker(tracker: dict) -> None:
-    """Save style rotation tracker to Google Sheet."""
+    """
+    Save style rotation tracker.
+    Tries Google Sheets first, always writes to local JSON as backup.
+    """
+    # Always save to local file first (instant, no API dependency)
     try:
-        sheet = _get_tracker_sheet()
+        os.makedirs(os.path.dirname(_LOCAL_TRACKER_FILE), exist_ok=True)
+        with open(_LOCAL_TRACKER_FILE, "w") as f:
+            json.dump(tracker, f, indent=2)
+    except Exception as e:
+        logger.error(f"Local tracker save failed — {type(e).__name__}: {e}")
+
+    # Also try Google Sheets (best effort, silent fail)
+    try:
+        sheet   = _get_tracker_sheet()
         records = sheet.get_all_records()
-        
-        a1_val = tracker.get("account_1", -1)
-        a2_val = tracker.get("account_2", -1)
-        
+        a1_val  = tracker.get("account_1", -1)
+        a2_val  = tracker.get("account_2", -1)
         if not records:
-            # Agar sheet ekdum blank hai, toh pehle headers dalo fir data
             sheet.append_row(["account_1", "account_2"])
             sheet.append_row([a1_val, a2_val])
         else:
-            # Row 2 (A2 aur B2) update karo
-            sheet.update('A2', [[a1_val, a2_val]])
-            
+            sheet.update("A2", [[a1_val, a2_val]])
     except Exception as e:
-        logger.error(f"❌ Failed to save tracker to sheet: {e}")
+        logger.warning(f"Tracker Sheet save failed (local file already saved) — {type(e).__name__}: {e}")
 
 def _get_next_style(account_key: str) -> str:
     """
@@ -853,6 +877,58 @@ def _validate(result: dict, account_key: str) -> None:
         result["visual_prompt"] = vp.rstrip(", ") + ", 4K ultra HD, photorealistic, highly detailed, award-winning photography"
 
 
+def _build_from_style_data(forced_style: str, ratio: str, niche: str) -> dict:
+    """
+    Build a complete VIRAL_PIN strategy DIRECTLY from VISUAL_STYLES hardcoded data.
+    Zero LLM dependency. Used when ALL LLM calls fail with non-429 errors.
+
+    The VISUAL_STYLES t2i_base prompts are already ultra-detailed and art-directed —
+    they produce magazine-quality results even without LLM expansion.
+    Rotation still advances normally — only the LLM copy generation is skipped.
+    """
+    style = VISUAL_STYLES.get(forced_style, list(VISUAL_STYLES.values())[0])
+    label = style["label"]
+    desc  = style["description"]
+    tags  = style["tags"]
+
+    # Use the highly detailed t2i_base directly as visual_prompt
+    visual_prompt = style["t2i_base"].strip().rstrip(", ")
+    if "4K ultra HD" not in visual_prompt:
+        visual_prompt += ", 4K ultra HD, photorealistic, highly detailed, award-winning photography"
+
+    # Craft title variants — rotate based on style key hash for variety
+    title_hooks = [
+        f"This {label} Is The Most Saved Aesthetic Right Now",
+        f"I Didn't Know A Room Could Look Like This — {label}",
+        f"This {label} Made Me Stop Scrolling Completely",
+        f"The {label} Aesthetic That's Taking Over Pinterest",
+        f"This Corner Changed How I Think About {label}",
+    ]
+    title = title_hooks[hash(forced_style) % len(title_hooks)][:90]
+
+    # Description from existing style description (already lifestyle-written)
+    description = desc[:380]
+    alt_text    = f"Aesthetic {label} photography — ultra-detailed Pinterest viral home decor inspiration"[:200]
+
+    logger.info(
+        f"   [{forced_style}] VISUAL_STYLES direct build (no LLM) — "
+        f"using t2i_base ({len(visual_prompt)} chars), tags={tags}"
+    )
+    return {
+        "pin_type":      "VIRAL_PIN",
+        "strategy":      f"VISUAL_STYLES Direct — {label}",
+        "visual_style":  forced_style,
+        "niche":         niche,
+        "vibe":          desc[:80],
+        "title":         title,
+        "description":   description,
+        "tags":          tags,
+        "alt_text":      alt_text,
+        "visual_prompt": visual_prompt,
+        "ratio":         ratio,
+    }
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # LLM CALLS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -898,37 +974,47 @@ def _call_cerebras_sync(prompt: str) -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 def _call_cmo_for_account(account_key: str, metrics: dict) -> dict:
     """
-    Gets the NEXT style in rotation for this account, then calls LLM
-    to generate title/description/tags/expanded-prompt for that specific style.
+    Gets the NEXT style in rotation, calls LLM for copy + prompt expansion.
+
+    ERROR HANDLING HIERARCHY:
+    1. Gemini fails  (any reason) → log EXACT error → try Cerebras
+    2. Cerebras 429               → log EXACT error → raise RuntimeError (→ node uses HARDCODED_FALLBACK)
+    3. Cerebras fails (non-429)   → log EXACT error → _build_from_style_data() (NO LLM, uses t2i_base directly)
+
+    Result: hardcoded FALLBACK only fires on 429 rate limit.
+    For ALL other errors, we use the ultra-detailed VISUAL_STYLES t2i_base directly — never a blank post.
     """
     ratio        = _pick_ratio()
     profile      = _ACCOUNT_PROFILES[account_key]
     forced_style = _get_next_style(account_key)   # ← ROTATION ENGINE
-    
-    # ── Niche selection: pick random niche from style affinity ────────────────
+
+    # Niche selection: pick random niche from style affinity
     style_data   = VISUAL_STYLES.get(forced_style, {})
     niche_list   = style_data.get("niche_affinity", ["default"])
     niche        = random.choice(niche_list) if niche_list else "default"
 
-    logger.info(f"   [{account_key}] 🎨 Generating style: {forced_style} | niche={niche} | ratio={ratio}")
+    logger.info(f"   [{account_key}] Generating: {forced_style} | niche={niche} | ratio={ratio}")
     prompt = _build_forced_style_prompt(profile, forced_style, ratio)
 
-    # PRIMARY: Gemini
+    # ── PRIMARY: Gemini ───────────────────────────────────────────────────────
     try:
         logger.info(f"   [{account_key}] Gemini (primary)...")
         raw    = _call_gemini_sync(prompt)
         result = _extract_json(raw)
         _validate(result, account_key)
         result["pin_type"]     = "VIRAL_PIN"
-        result["visual_style"] = forced_style   # enforce — LLM cannot change it
+        result["visual_style"] = forced_style
         result["ratio"]        = result.get("ratio", ratio)
-        result["niche"]        = niche  # ← ADD NICHE FOR BOARD SELECTION
-        logger.info(f"   [{account_key}] ✅ Gemini OK | style={forced_style} | niche={niche}")
+        result["niche"]        = niche
+        logger.info(f"   [{account_key}] Gemini OK | style={forced_style} | niche={niche}")
         return result
     except Exception as gemini_err:
-        logger.warning(f"   [{account_key}] Gemini failed: {gemini_err}")
+        logger.error(
+            f"   [{account_key}] GEMINI FAILED — "
+            f"{type(gemini_err).__name__}: {gemini_err}"
+        )
 
-    # FALLBACK: Cerebras
+    # ── FALLBACK: Cerebras ────────────────────────────────────────────────────
     try:
         logger.info(f"   [{account_key}] Cerebras fallback...")
         raw    = _call_cerebras_sync(prompt)
@@ -937,15 +1023,25 @@ def _call_cmo_for_account(account_key: str, metrics: dict) -> dict:
         result["pin_type"]     = "VIRAL_PIN"
         result["visual_style"] = forced_style
         result["ratio"]        = result.get("ratio", ratio)
-        result["niche"]        = niche  # ← ADD NICHE FOR BOARD SELECTION
-        logger.info(f"   [{account_key}] ✅ Cerebras OK | style={forced_style} | niche={niche}")
+        result["niche"]        = niche
+        logger.info(f"   [{account_key}] Cerebras OK | style={forced_style} | niche={niche}")
         return result
     except RuntimeError as rate_err:
-        logger.warning(f"   [{account_key}] {rate_err}")
+        # 429 — nothing we can do, raise so node uses HARDCODED_FALLBACK
+        logger.error(
+            f"   [{account_key}] CEREBRAS 429 RATE LIMIT — "
+            f"{type(rate_err).__name__}: {rate_err} | "
+            f"→ Using HARDCODED_FALLBACK (rate limited)"
+        )
         raise
     except Exception as cerebras_err:
-        logger.warning(f"   [{account_key}] Cerebras failed: {cerebras_err}")
-        raise
+        # Non-429 error — DON'T raise, use VISUAL_STYLES t2i_base directly
+        logger.error(
+            f"   [{account_key}] CEREBRAS FAILED — "
+            f"{type(cerebras_err).__name__}: {cerebras_err} | "
+            f"→ Using VISUAL_STYLES direct build for: {forced_style}"
+        )
+        return _build_from_style_data(forced_style, ratio, niche)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -985,12 +1081,24 @@ async def node_cmo_mastermind(state: MastermindState) -> dict:
     if run_a1:
         try:
             a1_strategy = await asyncio.to_thread(_call_cmo_for_account, "account_1", a1_metrics)
-            logger.info(f"[Node 2] A1 ✅ | style={a1_strategy.get('visual_style','?')} | ratio={a1_strategy.get('ratio','9:16')}")
-        except Exception as e:
-            logger.error(f"[Node 2] All CMO models failed for A1: {e}. Using hardcoded fallback.")
+            strategy_src = "VISUAL_STYLES-direct" if "VISUAL_STYLES Direct" in a1_strategy.get("strategy", "") else "LLM"
+            logger.info(
+                f"[Node 2] A1 OK ({strategy_src}) | "
+                f"style={a1_strategy.get('visual_style','?')} | "
+                f"ratio={a1_strategy.get('ratio','9:16')}"
+            )
+        except RuntimeError as rate_err:
+            # Only RuntimeError (429) reaches here — non-429 is handled inside _call_cmo_for_account
+            logger.error(
+                f"[Node 2] A1 HARDCODED FALLBACK — REASON: {type(rate_err).__name__}: {rate_err}"
+            )
             a1_strategy = HARDCODED_FALLBACK["account_1"]
-            # Still advance the tracker even on fallback so next run gets next style
-            _get_next_style("account_1")
+            fallback = True
+        except Exception as e:
+            logger.error(
+                f"[Node 2] A1 HARDCODED FALLBACK — REASON: {type(e).__name__}: {e}"
+            )
+            a1_strategy = HARDCODED_FALLBACK["account_1"]
             fallback = True
     else:
         a1_strategy = {}
@@ -999,11 +1107,23 @@ async def node_cmo_mastermind(state: MastermindState) -> dict:
     if run_a2:
         try:
             a2_strategy = await asyncio.to_thread(_call_cmo_for_account, "account_2", a2_metrics)
-            logger.info(f"[Node 2] A2 ✅ | style={a2_strategy.get('visual_style','?')} | ratio={a2_strategy.get('ratio','9:16')}")
-        except Exception as e:
-            logger.error(f"[Node 2] All CMO models failed for A2: {e}. Using hardcoded fallback.")
+            strategy_src = "VISUAL_STYLES-direct" if "VISUAL_STYLES Direct" in a2_strategy.get("strategy", "") else "LLM"
+            logger.info(
+                f"[Node 2] A2 OK ({strategy_src}) | "
+                f"style={a2_strategy.get('visual_style','?')} | "
+                f"ratio={a2_strategy.get('ratio','9:16')}"
+            )
+        except RuntimeError as rate_err:
+            logger.error(
+                f"[Node 2] A2 HARDCODED FALLBACK — REASON: {type(rate_err).__name__}: {rate_err}"
+            )
             a2_strategy = HARDCODED_FALLBACK["account_2"]
-            _get_next_style("account_2")
+            fallback = True
+        except Exception as e:
+            logger.error(
+                f"[Node 2] A2 HARDCODED FALLBACK — REASON: {type(e).__name__}: {e}"
+            )
+            a2_strategy = HARDCODED_FALLBACK["account_2"]
             fallback = True
     else:
         a2_strategy = {}
