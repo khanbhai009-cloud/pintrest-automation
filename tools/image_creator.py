@@ -1,17 +1,26 @@
 """
-tools/image_creator.py — Dual-Layer T2I Image Pipeline  [VARIETY ENGINE v3 — BRIGHT AESTHETIC]
+tools/image_creator.py — Dual-Layer T2I Image Pipeline  [VARIETY ENGINE v4 — CLEAN & OPTIMIZED]
 
 MODELS (in order):
   1. Cloudflare   — @cf/black-forest-labs/flux-1-schnell (Primary, Fast & High Quality)
   2. Pollinations — free, URL-based, 4K quality (Fallback)
 
-VARIETY ENGINE:
-  • Random seed injected every call → different output from same prompt
-  • Rotation pools: camera angle, lighting mood, time of day, color temperature,
-    season/weather, compositional style — auto-injected into every prompt
-  • Home-decor optimized pools: bright, warm, colorful, cheerful — not moody/dark
-  • Negative prompt suffix blocks: blur, text, watermark, plastic, fake, overexposed
-  • Result: same visual style, completely fresh image every single pin
+VARIETY ENGINE v4 — What changed from v3:
+  REMOVED (were hurting quality):
+    ✗ _CAMERA_LENSES    — Flux Schnell ignores real camera specs, produces garbage
+    ✗ _EDITORIAL_STYLE  — "Architectural Digest editorial" has zero effect on model
+    ✗ _COLOR_ACCENTS    — Conflicts with prompts master which already sets colors
+    ✗ _TEXTURE_DETAILS  — Over-specification overwhelms the model
+    ✗ _TIME_OF_DAY      — Redundant, already covered by _LIGHTING_MOODS
+
+  KEPT (genuinely useful):
+    ✓ _CAMERA_ANGLES    — Fresh perspective every pin
+    ✓ _LIGHTING_MOODS   — Controls brightness & mood well
+    ✓ _COMP_STYLES      — Gives composition variety
+    ✓ _SEASONS_WEATHER  — Background context variety
+
+  RESULT: Prompt stays ~350-450 chars (was bloating to 900).
+          Model gets clear signal → sharper, cleaner, on-theme output.
 
 RATIO SUPPORT:
   • 9:16 portrait → 1080x1920  (primary, Pinterest-native)
@@ -60,9 +69,9 @@ _NEGATIVE_PROMPT = (
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
-# VARIETY ENGINE — Rotation pools for infinite visual freshness
-# Tuned for BRIGHT, COLORFUL, WARM home decor Pinterest aesthetic
-# Each pin call randomly picks one from each pool and injects into prompt
+# VARIETY ENGINE v4 — 4 focused pools only
+# Prompts master already handles: subject, colors, props, style details
+# These pools only add: angle, light, composition, season — nothing more
 # ══════════════════════════════════════════════════════════════════════════════
 
 _CAMERA_ANGLES = [
@@ -84,50 +93,11 @@ _LIGHTING_MOODS = [
     "diffused bright daylight, zero harsh shadows",
     "gentle dappled sunlight through sheer curtains",
     "crisp clean mid-morning bright light",
-    "warm 3200K ambient with soft window fill",
+    "warm ambient with soft window fill",
     "bright airy spring daylight, high key",
     "soft side window light with gentle fill",
     "cheerful sunny afternoon interior light",
     "warm cozy lamp light complementing daylight",
-]
-
-_TIME_OF_DAY = [
-    "bright morning, 9AM fresh light",
-    "mid-morning golden light, 10AM",
-    "cheerful bright noon, 12PM",
-    "warm afternoon sun, 2PM",
-    "golden late afternoon, 4PM",
-    "soft warm early evening, 6PM with lamps on",
-    "cozy early morning, 7AM soft glow",
-    "bright spring mid-morning, 11AM",
-    "warm sunny mid-afternoon, 3PM",
-    "fresh bright overcast soft-light morning",
-]
-
-_COLOR_TEMPERATURE = [
-    "warm 3200K golden amber glow",
-    "balanced warm 3800K natural light",
-    "fresh 4500K clean daylight",
-    "bright 5500K daylight white, airy",
-    "warm-cool 4000K neutral balanced",
-    "golden 3400K cozy warm tones",
-    "crisp 6000K cool daylight, vibrant",
-    "warm 3600K afternoon golden light",
-    "soft 4200K natural window fill",
-    "bright 5000K spring fresh daylight",
-]
-
-_SEASONS_WEATHER = [
-    "lush bright spring, cherry blossoms visible through window",
-    "warm golden summer, vibrant greenery outside",
-    "fresh spring morning, soft green buds on trees",
-    "bright clear summer day, blue sky outside",
-    "warm late spring afternoon, flowers in full bloom",
-    "sunny golden autumn, warm amber light",
-    "fresh spring after rain, everything glistening green",
-    "clear crisp summer blue-sky day",
-    "warm mid-spring garden visible through window",
-    "bright cheerful overcast spring diffused light",
 ]
 
 _COMP_STYLES = [
@@ -143,96 +113,47 @@ _COMP_STYLES = [
     "negative space minimalism with single hero prop",
 ]
 
-_CAMERA_LENSES = [
-    "Canon 35mm f/1.4 L lens, shallow depth of field, creamy bokeh",
-    "Sony 85mm f/1.8 portrait lens, smooth background separation",
-    "Canon 24mm f/2.8 wide angle, expansive interior view",
-    "Nikon 50mm f/1.2, balanced perspective, soft bokeh",
-    "Sony A7R V 16mm ultra-wide, full room perspective",
-    "Fujifilm GFX100 medium format, incredibly rich tones",
-    "Canon TS-E 24mm tilt-shift, selective focus plane, no distortion",
-    "Sony 35mm f/1.8 compact prime, intimate lifestyle shot",
-    "Canon EOS R5 50mm f/1.8, clean natural perspective",
-    "Leica M11 28mm, film-like character, natural proportions",
-]
-
-_EDITORIAL_STYLE = [
-    "Architectural Digest bright spring editorial",
-    "Kinfolk magazine warm lifestyle aesthetic",
-    "House Beautiful cheerful interior spread",
-    "Better Homes and Gardens colorful lifestyle",
-    "Pinterest viral save-worthy home aesthetic",
-    "Domino Magazine colorful modern interior",
-    "Elle Decor bright maximalist editorial",
-    "Real Simple magazine clean warm lifestyle",
-    "Apartment Therapy bright small-space editorial",
-    "Southern Living cheerful cottage editorial",
-]
-
-# ══════════════════════════════════════════════════════════════════════════════
-# COLOR ACCENT POOLS — Injects fresh color energy per pin
-# ══════════════════════════════════════════════════════════════════════════════
-_COLOR_ACCENTS = [
-    "pops of mustard yellow and terracotta",
-    "soft sage green and cream palette",
-    "blush pink and mint green pastels",
-    "warm honey yellow and white tones",
-    "sage green and copper accent palette",
-    "dusty pink and natural wood tones",
-    "mint green and white fresh palette",
-    "warm peach and cream botanical palette",
-    "yellow and white cheerful palette",
-    "blush and sage boho palette",
-]
-
-_TEXTURE_DETAILS = [
-    "rattan weave, matte ceramic, rough linen textures",
-    "smooth painted plaster, polished brass, ribbed ceramic",
-    "natural jute, weathered oak wood grain, cotton knit",
-    "glazed ceramic tile, worn terracotta, sheer muslin",
-    "soft velvet upholstery, brushed copper, smooth marble",
-    "cable-knit throw, rough stone, burnished wood",
-    "crisp cotton bed linen, smooth plaster, wicker weave",
-    "matte finish walls, polished concrete, soft bouclé",
-    "lacquered wood, ribbed glass, hand-thrown ceramic",
-    "natural linen drape, hammered brass, smooth tile",
+_SEASONS_WEATHER = [
+    "lush bright spring, cherry blossoms visible through window",
+    "warm golden summer, vibrant greenery outside",
+    "fresh spring morning, soft green buds on trees",
+    "bright clear summer day, blue sky outside",
+    "warm late spring afternoon, flowers in full bloom",
+    "sunny golden autumn, warm amber light",
+    "fresh spring after rain, everything glistening green",
+    "clear crisp summer blue-sky day",
+    "warm mid-spring garden visible through window",
+    "bright cheerful overcast spring diffused light",
 ]
 
 
 def _pick_variety_modifiers() -> dict:
-    """Pick one random modifier from each pool. Called fresh every pin generation."""
+    """Pick one random modifier from each of the 4 focused pools."""
     return {
-        "angle":        random.choice(_CAMERA_ANGLES),
-        "lighting":     random.choice(_LIGHTING_MOODS),
-        "time":         random.choice(_TIME_OF_DAY),
-        "color_grade":  random.choice(_COLOR_TEMPERATURE),
-        "season":       random.choice(_SEASONS_WEATHER),
-        "comp":         random.choice(_COMP_STYLES),
-        "lens":         random.choice(_CAMERA_LENSES),
-        "editorial":    random.choice(_EDITORIAL_STYLE),
-        "color_accent": random.choice(_COLOR_ACCENTS),
-        "texture":      random.choice(_TEXTURE_DETAILS),
+        "angle":    random.choice(_CAMERA_ANGLES),
+        "lighting": random.choice(_LIGHTING_MOODS),
+        "comp":     random.choice(_COMP_STYLES),
+        "season":   random.choice(_SEASONS_WEATHER),
     }
 
 
 def _inject_variety(base_prompt: str) -> tuple[str, dict]:
     """
-    Inject random variety modifiers into the base CMO visual_prompt.
+    Inject 4 focused variety modifiers into the base prompts-master visual_prompt.
+    Keeps total prompt lean (~350-450 chars) so the model stays on-theme.
     Returns (enriched_prompt, modifiers_used) — modifiers logged for debugging.
     """
     mods = _pick_variety_modifiers()
 
     variety_block = (
-        f"{mods['angle']}, {mods['lighting']}, {mods['time']}, "
-        f"{mods['color_grade']}, {mods['season']}, {mods['comp']}, "
-        f"{mods['lens']}, {mods['editorial']}, "
-        f"{mods['color_accent']}, {mods['texture']}"
+        f"{mods['angle']}, {mods['lighting']}, "
+        f"{mods['comp']}, {mods['season']}"
     )
 
-    # Insert variety before the quality tail (which is always at the end)
-    # Strip existing quality tail if present, re-add cleanly at the end
     quality_tail = "4K ultra HD, photorealistic, highly detailed, award-winning photography"
-    base_clean   = base_prompt.replace(quality_tail, "").rstrip(", ").strip()
+
+    # Strip existing quality tail if prompts master already added it, re-add cleanly
+    base_clean = base_prompt.replace(quality_tail, "").rstrip(", ").strip()
 
     enriched = f"{base_clean}, {variety_block}, {quality_tail}"
     return enriched, mods
@@ -240,7 +161,7 @@ def _inject_variety(base_prompt: str) -> tuple[str, dict]:
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-def _enrich_prompt(prompt: str, max_chars: int = 900) -> str:
+def _enrich_prompt(prompt: str, max_chars: int = 600) -> str:
     """Ensure quality tail present, then truncate. Variety already injected upstream."""
     base = prompt.strip()
     if "4K" not in base and "4k" not in base:
@@ -309,8 +230,8 @@ async def _cloudflare_once(prompt: str, ratio: str) -> Optional[bytes]:
 
     payload = {
         "prompt":          enriched,
-        "negative_prompt": _NEGATIVE_PROMPT,   # blocks garbage outputs
-        "num_steps":       8,                   # max for Flux Schnell quality
+        "negative_prompt": _NEGATIVE_PROMPT,
+        "num_steps":       8,                          # max for Flux Schnell quality
         "seed":            random.randint(1, 2_147_483_647),  # fresh every call
         "width":           w,
         "height":          h,
@@ -354,8 +275,8 @@ async def _t2i_cloudflare(prompt: str, ratio: str) -> Optional[bytes]:
 
 async def _pollinations_once(prompt: str, ratio: str) -> Optional[bytes]:
     w, h     = _get_dims(ratio)
-    enriched = _enrich_prompt(prompt, max_chars=600)
-    seed     = random.randint(1, 999_999)       # random seed for variety
+    enriched = _enrich_prompt(prompt, max_chars=500)
+    seed     = random.randint(1, 999_999)
     encoded  = urllib.parse.quote(enriched)
     url      = (
         f"{_POLLINATIONS_BASE}/{encoded}"
@@ -394,26 +315,34 @@ async def _t2i_pollinations(prompt: str, ratio: str) -> Optional[bytes]:
 
 async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optional[str]:
     """
-    Generate a VIRAL_PIN image using the T2I pipeline.
-    - Injects random variety modifiers (angle, lighting, color grade, texture, etc.)
-    - Uses random seed on every call for visual freshness
-    - Blocks garbage outputs via negative prompt (including dark/moody)
-    - Uploads result to ImgBB for permanent hosting
-    Returns: ImgBB URL or None
+    Generate a Pinterest image using the T2I pipeline.
+
+    Flow:
+      1. Inject 4 focused variety modifiers (angle, lighting, comp, season)
+      2. Random seed every call for visual freshness
+      3. Try Cloudflare (primary) → Pollinations (fallback)
+      4. Upload result to ImgBB for permanent hosting
+
+    Args:
+        visual_prompt: The detailed visual prompt from prompts master
+        ratio: "9:16" (Pinterest portrait) or "1:1" (square)
+
+    Returns:
+        ImgBB hosted URL or None if all models fail
     """
     w, h = _get_dims(ratio)
-    logger.info(f"🎨 [Image Pipeline] VIRAL_PIN | ratio={ratio} ({w}x{h})")
+    logger.info(f"🎨 [Image Pipeline] PIN | ratio={ratio} ({w}x{h})")
 
-    # Inject variety — fresh modifiers every single call
+    # Inject variety — 4 focused modifiers, lean prompt
     enriched_prompt, mods = _inject_variety(visual_prompt)
     logger.info(
-        f"🎲 [Variety Engine] "
-        f"angle={mods['angle'][:30]} | "
-        f"light={mods['lighting'][:30]} | "
-        f"grade={mods['color_grade'][:25]} | "
-        f"accent={mods['color_accent'][:30]} | "
-        f"lens={mods['lens'][:30]}"
+        f"🎲 [Variety Engine v4] "
+        f"angle={mods['angle'][:35]} | "
+        f"light={mods['lighting'][:35]} | "
+        f"comp={mods['comp'][:35]} | "
+        f"season={mods['season'][:35]}"
     )
+    logger.info(f"📝 [Prompt] {len(enriched_prompt)} chars: {enriched_prompt[:120]}...")
 
     # PRIMARY: Cloudflare
     image_bytes = await _t2i_cloudflare(enriched_prompt, ratio)
