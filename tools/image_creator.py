@@ -67,7 +67,7 @@ _RATIO_DIMS = {
 }
 
 _POLLINATIONS_BASE = "https://image.pollinations.ai/prompt"
-_HF_FLUX_URL       = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
+_HF_FLUX_URL       = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
 
 # ── Negative prompt — always appended to block garbage outputs ─────────────────
 _NEGATIVE_PROMPT = (
@@ -300,10 +300,11 @@ async def _huggingface_once(prompt: str, ratio: str) -> Optional[bytes]:
     payload = {
         "inputs": enriched,
         "parameters": {
-            "width":      w,
-            "height":     h,
-            "num_inference_steps": 4,   # FLUX schnell optimal: 1-4 steps
-            "seed":       random.randint(1, 999_999),
+            "width":               w,
+            "height":              h,
+            "num_inference_steps": 4,    # FLUX schnell optimal: 1-4 steps
+            "guidance_scale":      0.0,  # FLUX schnell needs 0.0
+            "seed":                random.randint(1, 999_999),
         }
     }
 
