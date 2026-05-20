@@ -1,9 +1,10 @@
 """
-tools/image_creator.py — Dual-Layer T2I Image Pipeline  [VARIETY ENGINE v4 — CLEAN & OPTIMIZED]
+tools/image_creator.py — Triple-Layer T2I Image Pipeline  [VARIETY ENGINE v4 — CLEAN & OPTIMIZED]
 
 MODELS (in order):
-  1. Cloudflare   — @cf/black-forest-labs/flux-1-schnell (Primary, Fast & High Quality)
-  2. Pollinations — free, URL-based, 4K quality (Fallback)
+  1. Cloudflare     — @cf/black-forest-labs/flux-1-schnell (Primary)
+  2. Hugging Face   — black-forest-labs/FLUX.1-schnell (Secondary fallback)
+  3. Pollinations   — free, URL-based (Last resort fallback)
 
 VARIETY ENGINE v4 — What changed from v3:
   REMOVED (were hurting quality):
@@ -30,6 +31,7 @@ RATIO SUPPORT:
 import asyncio
 import base64
 import logging
+import os
 import random
 import urllib.parse
 from typing import Optional
@@ -46,11 +48,18 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
+# ── HuggingFace token from env ─────────────────────────────────────────────────
+HF_API_TOKEN = os.environ.get("HF_TOKEN", "")
+
 # ── Constants ──────────────────────────────────────────────────────────────────
-_CALL_TIMEOUT    = 180
-_RETRY_DELAY     = 3
-_MIN_VALID_BYTES = 5_000
-_MAX_RETRIES     = 2
+_CALL_TIMEOUT        = 180
+_CF_RETRY_DELAY      = 40   # Cloudflare: 40s wait between retries (GPU overload needs time)
+_HF_RETRY_DELAY      = 30   # HuggingFace: 30s wait between retries
+_POLL_RETRY_DELAY    = 10   # Pollinations: 10s wait between retries
+_MIN_VALID_BYTES     = 5_000
+_CF_MAX_RETRIES      = 2
+_HF_MAX_RETRIES      = 2
+_POLL_MAX_RETRIES    = 2
 
 _RATIO_DIMS = {
     "9:16": (1080, 1920),
@@ -58,6 +67,7 @@ _RATIO_DIMS = {
 }
 
 _POLLINATIONS_BASE = "https://image.pollinations.ai/prompt"
+_HF_FLUX_URL       = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
 
 # ── Negative prompt — always appended to block garbage outputs ─────────────────
 _NEGATIVE_PROMPT = (
@@ -231,8 +241,8 @@ async def _cloudflare_once(prompt: str, ratio: str) -> Optional[bytes]:
     payload = {
         "prompt":          enriched,
         "negative_prompt": _NEGATIVE_PROMPT,
-        "num_steps":       8,                          # max for Flux Schnell quality
-        "seed":            random.randint(1, 2_147_483_647),  # fresh every call
+        "num_steps":       8,                                # max for Flux Schnell quality
+        "seed":            random.randint(1, 2_147_483_647), # fresh every call
         "width":           w,
         "height":          h,
     }
@@ -253,9 +263,9 @@ async def _cloudflare_once(prompt: str, ratio: str) -> Optional[bytes]:
 
 
 async def _t2i_cloudflare(prompt: str, ratio: str) -> Optional[bytes]:
-    for attempt in range(1, _MAX_RETRIES + 1):
+    for attempt in range(1, _CF_MAX_RETRIES + 1):
         try:
-            logger.info(f"🎨 [Cloudflare] Attempt {attempt}/{_MAX_RETRIES} | ratio={ratio}")
+            logger.info(f"🎨 [Cloudflare] Attempt {attempt}/{_CF_MAX_RETRIES} | ratio={ratio}")
             img = await _cloudflare_once(prompt, ratio)
             if _is_valid(img):
                 logger.info(f"✅ [Cloudflare] {len(img):,} bytes on attempt {attempt}")
@@ -264,14 +274,82 @@ async def _t2i_cloudflare(prompt: str, ratio: str) -> Optional[bytes]:
         except Exception as e:
             logger.warning(f"⚠️ [Cloudflare] Attempt {attempt} error: {e}")
 
-        if attempt < _MAX_RETRIES:
-            await asyncio.sleep(_RETRY_DELAY)
+        if attempt < _CF_MAX_RETRIES:
+            delay = random.randint(30, 50)
+            logger.info(f"⏳ [Cloudflare] Waiting {delay}s before retry...")
+            await asyncio.sleep(delay)
 
-    logger.error("❌ [Cloudflare] All attempts failed — moving to Pollinations.")
+    logger.error("❌ [Cloudflare] All attempts failed — moving to HuggingFace.")
     return None
 
 
-# ── Model 2: Pollinations.ai (Fallback) ────────────────────────────────────────
+# ── Model 2: Hugging Face FLUX.1-schnell ───────────────────────────────────────
+
+async def _huggingface_once(prompt: str, ratio: str) -> Optional[bytes]:
+    if not HF_API_TOKEN:
+        raise RuntimeError("HF_TOKEN not set in environment.")
+
+    w, h     = _get_dims(ratio)
+    enriched = _enrich_prompt(prompt, max_chars=500)
+
+    headers = {
+        "Authorization": f"Bearer {HF_API_TOKEN}",
+        "Content-Type":  "application/json",
+    }
+
+    payload = {
+        "inputs": enriched,
+        "parameters": {
+            "width":      w,
+            "height":     h,
+            "num_inference_steps": 4,   # FLUX schnell optimal: 1-4 steps
+            "seed":       random.randint(1, 999_999),
+        }
+    }
+
+    async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
+        resp = await client.post(_HF_FLUX_URL, headers=headers, json=payload)
+
+        # Model may be loading — HF returns 503 with estimated_time
+        if resp.status_code == 503:
+            try:
+                wait_time = resp.json().get("estimated_time", 30)
+            except Exception:
+                wait_time = 30
+            logger.info(f"⏳ [HuggingFace] Model loading, waiting {wait_time:.0f}s...")
+            await asyncio.sleep(min(float(wait_time), 60))
+            # One more try after model loads
+            resp = await client.post(_HF_FLUX_URL, headers=headers, json=payload)
+
+        resp.raise_for_status()
+        return resp.content
+
+
+async def _t2i_huggingface(prompt: str, ratio: str) -> Optional[bytes]:
+    if not HF_API_TOKEN:
+        logger.warning("⚠️ [HuggingFace] HF_TOKEN not set — skipping.")
+        return None
+
+    for attempt in range(1, _HF_MAX_RETRIES + 1):
+        try:
+            logger.info(f"🤗 [HuggingFace] Attempt {attempt}/{_HF_MAX_RETRIES} | ratio={ratio}")
+            img = await _huggingface_once(prompt, ratio)
+            if _is_valid(img):
+                logger.info(f"✅ [HuggingFace] {len(img):,} bytes on attempt {attempt}")
+                return img
+            logger.warning(f"⚠️ [HuggingFace] Attempt {attempt}: invalid/too small")
+        except Exception as e:
+            logger.warning(f"⚠️ [HuggingFace] Attempt {attempt} error: {e}")
+
+        if attempt < _HF_MAX_RETRIES:
+            logger.info(f"⏳ [HuggingFace] Waiting {_HF_RETRY_DELAY}s before retry...")
+            await asyncio.sleep(_HF_RETRY_DELAY)
+
+    logger.error("❌ [HuggingFace] All attempts failed — moving to Pollinations.")
+    return None
+
+
+# ── Model 3: Pollinations.ai (Last Resort) ─────────────────────────────────────
 
 async def _pollinations_once(prompt: str, ratio: str) -> Optional[bytes]:
     w, h     = _get_dims(ratio)
@@ -291,9 +369,9 @@ async def _pollinations_once(prompt: str, ratio: str) -> Optional[bytes]:
 
 
 async def _t2i_pollinations(prompt: str, ratio: str) -> Optional[bytes]:
-    for attempt in range(1, _MAX_RETRIES + 1):
+    for attempt in range(1, _POLL_MAX_RETRIES + 1):
         try:
-            logger.info(f"🎨 [Pollinations] Attempt {attempt}/{_MAX_RETRIES}")
+            logger.info(f"🎨 [Pollinations] Attempt {attempt}/{_POLL_MAX_RETRIES}")
             img = await _pollinations_once(prompt, ratio)
             if _is_valid(img):
                 logger.info(f"✅ [Pollinations] {len(img):,} bytes on attempt {attempt}")
@@ -302,8 +380,9 @@ async def _t2i_pollinations(prompt: str, ratio: str) -> Optional[bytes]:
         except Exception as e:
             logger.warning(f"⚠️ [Pollinations] Attempt {attempt} error: {e}")
 
-        if attempt < _MAX_RETRIES:
-            await asyncio.sleep(_RETRY_DELAY)
+        if attempt < _POLL_MAX_RETRIES:
+            logger.info(f"⏳ [Pollinations] Waiting {_POLL_RETRY_DELAY}s before retry...")
+            await asyncio.sleep(_POLL_RETRY_DELAY)
 
     logger.error("❌ [Pollinations] All attempts failed.")
     return None
@@ -320,7 +399,7 @@ async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optiona
     Flow:
       1. Inject 4 focused variety modifiers (angle, lighting, comp, season)
       2. Random seed every call for visual freshness
-      3. Try Cloudflare (primary) → Pollinations (fallback)
+      3. Try Cloudflare (primary) → HuggingFace (secondary) → Pollinations (last resort)
       4. Upload result to ImgBB for permanent hosting
 
     Args:
@@ -347,9 +426,14 @@ async def generate_pin_image(visual_prompt: str, ratio: str = "9:16") -> Optiona
     # PRIMARY: Cloudflare
     image_bytes = await _t2i_cloudflare(enriched_prompt, ratio)
 
-    # FALLBACK: Pollinations
+    # SECONDARY: HuggingFace
     if not image_bytes:
-        logger.info("🔄 [Image Pipeline] Cloudflare exhausted — trying Pollinations...")
+        logger.info("🔄 [Image Pipeline] Cloudflare exhausted — trying HuggingFace...")
+        image_bytes = await _t2i_huggingface(enriched_prompt, ratio)
+
+    # LAST RESORT: Pollinations
+    if not image_bytes:
+        logger.info("🔄 [Image Pipeline] HuggingFace exhausted — trying Pollinations...")
         image_bytes = await _t2i_pollinations(enriched_prompt, ratio)
 
     if not image_bytes:
