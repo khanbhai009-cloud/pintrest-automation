@@ -503,11 +503,12 @@ header {
 .vision-body { padding: 1.2rem 1.4rem; }
 .vision-meta-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 0.8rem;
   margin-bottom: 1.2rem;
 }
-@media(max-width:700px) { .vision-meta-grid { grid-template-columns: repeat(2,1fr); } }
+@media(max-width:1000px) { .vision-meta-grid { grid-template-columns: repeat(3,1fr); } }
+@media(max-width:600px)  { .vision-meta-grid { grid-template-columns: repeat(2,1fr); } }
 .vision-stat {
   background: rgba(0,0,0,0.25);
   border: 1px solid rgba(34,211,238,0.1);
@@ -648,7 +649,7 @@ header {
         </div>
         <div class="vision-body">
 
-          <!-- 4 mini stat boxes -->
+          <!-- 6 mini stat boxes -->
           <div class="vision-meta-grid">
             <div class="vision-stat">
               <div class="vision-stat-label">Processed Today</div>
@@ -661,14 +662,24 @@ header {
               <div class="vision-stat-sub">max per day</div>
             </div>
             <div class="vision-stat">
-              <div class="vision-stat-label">In Drive Queue</div>
-              <div class="vision-stat-val v-orange" id="vf-queue">—</div>
-              <div class="vision-stat-sub">images pending</div>
+              <div class="vision-stat-label">Remaining Today</div>
+              <div class="vision-stat-val v-green" id="vf-remaining">—</div>
+              <div class="vision-stat-sub">slots left</div>
             </div>
             <div class="vision-stat">
-              <div class="vision-stat-label">Remaining</div>
-              <div class="vision-stat-val v-green" id="vf-remaining">—</div>
-              <div class="vision-stat-sub">slots today</div>
+              <div class="vision-stat-label">Drive — Pending</div>
+              <div class="vision-stat-val v-orange" id="vf-queue">—</div>
+              <div class="vision-stat-sub">in input folder</div>
+            </div>
+            <div class="vision-stat">
+              <div class="vision-stat-label">Drive — Done</div>
+              <div class="vision-stat-val" style="color:#22d3ee" id="vf-drive-done">—</div>
+              <div class="vision-stat-sub">processed folder</div>
+            </div>
+            <div class="vision-stat">
+              <div class="vision-stat-label">Prompts Ready</div>
+              <div class="vision-stat-val" style="color:#a855f7" id="vf-prompts">—</div>
+              <div class="vision-stat-sub">in master sheet</div>
             </div>
           </div>
 
@@ -1411,15 +1422,19 @@ async function loadVisionStats() {
     const d = await (await fetch(BASE + 'api/vision/stats')).json();
 
     // Stat boxes
-    const processed = d.processed_today ?? 0;
-    const limit     = d.daily_limit     ?? 10;
-    const queue     = d.queue_count     ?? 0;
-    const remaining = Math.max(0, limit - processed);
+    const processed  = d.processed_today  ?? 0;
+    const limit      = d.daily_limit      ?? 10;
+    const queue      = d.queue_count      ?? 0;
+    const remaining  = Math.max(0, limit - processed);
+    const driveDone  = d.drive_done_total ?? '—';
+    const promptsTotal = d.prompts_total  ?? '—';
 
-    document.getElementById('vf-processed').textContent = processed;
-    document.getElementById('vf-limit').textContent     = limit;
-    document.getElementById('vf-queue').textContent     = queue;
-    document.getElementById('vf-remaining').textContent = remaining;
+    document.getElementById('vf-processed').textContent  = processed;
+    document.getElementById('vf-limit').textContent      = limit;
+    document.getElementById('vf-queue').textContent      = queue;
+    document.getElementById('vf-remaining').textContent  = remaining;
+    document.getElementById('vf-drive-done').textContent = driveDone;
+    document.getElementById('vf-prompts').textContent    = promptsTotal;
 
     // Progress bar
     const pct = limit > 0 ? Math.min(100, Math.round((processed / limit) * 100)) : 0;

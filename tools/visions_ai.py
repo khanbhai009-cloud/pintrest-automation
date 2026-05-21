@@ -121,6 +121,35 @@ def move_file_in_drive(file_id: str, old_parent: str, new_parent: str):
 DAILY_IMAGE_LIMIT = 10
 _today_count = {"date": None, "count": 0}
 
+# ── Drive processed-folder count cache (TTL 5 min) ─────────────────────────
+_drive_done_cache = {"count": 0, "ts": 0.0}
+_DRIVE_DONE_TTL   = 300  # seconds
+
+def _get_drive_processed_count() -> int:
+    """
+    Drive ke Processed folder mein kitni images hain — all-time total.
+    TTL-cached (5 min) taaki Drive API baar baar hit na ho.
+    """
+    import time as _time
+    now = _time.monotonic()
+    if drive_service is None:
+        return 0
+    if (now - _drive_done_cache["ts"]) < _DRIVE_DONE_TTL:
+        return _drive_done_cache["count"]
+    try:
+        res = drive_service.files().list(
+            q=f"'{DRIVE_PROCESSED_FOLDER_ID}' in parents and trashed=false",
+            pageSize=1000,
+            fields="files(id)"
+        ).execute()
+        count = len(res.get("files", []))
+        _drive_done_cache["count"] = count
+        _drive_done_cache["ts"]    = now
+        return count
+    except Exception as e:
+        logging.warning(f"⚠️ Drive processed count failed: {e}")
+        return _drive_done_cache["count"]
+
 # ── Stop / Start Control Flag ──────────────────────────────────────────────
 _stop_flag = {"value": False}
 
@@ -153,6 +182,7 @@ def get_vision_stats() -> dict:
     """Dashboard ke liye live stats return karo."""
     _vision_stats["processed_today"] = _get_today_processed()
     _vision_stats["daily_limit"]     = DAILY_IMAGE_LIMIT
+    _vision_stats["drive_done_total"] = _get_drive_processed_count()
     return dict(_vision_stats)
 
 # ── Internal Helpers ───────────────────────────────────────────────────────

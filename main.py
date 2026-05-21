@@ -345,15 +345,22 @@ async def stop_mastermind():
 @app.get("/api/vision/stats")
 async def vision_stats():
     vs = get_vision_stats()
+    try:
+        from sheets.prompts_master import get_prompts_master
+        prompts_total = len(get_prompts_master())
+    except Exception:
+        prompts_total = 0
     return {
-        "running":         state["vision_feeder_running"],
-        "paused":          state["vision_feeder_paused"],
-        "queue_count":     vs["queue_count"],
-        "processed_today": vs["processed_today"],
-        "daily_limit":     vs["daily_limit"],
-        "last_file":       vs["last_file"],
-        "last_time":       vs["last_time"],
-        "status":          vs["status"],
+        "running":          state["vision_feeder_running"],
+        "paused":           state["vision_feeder_paused"],
+        "queue_count":      vs["queue_count"],
+        "processed_today":  vs["processed_today"],
+        "daily_limit":      vs["daily_limit"],
+        "drive_done_total": vs.get("drive_done_total", 0),
+        "prompts_total":    prompts_total,
+        "last_file":        vs["last_file"],
+        "last_time":        vs["last_time"],
+        "status":           vs["status"],
     }
 
 @app.post("/api/vision/stop")
