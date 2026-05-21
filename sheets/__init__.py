@@ -22,7 +22,7 @@ from sheets.prompts_master import get_prompts_master, invalidate_cache, append_p
 from sheets.analytics      import get_analytics_rows
 from sheets.style_tracker  import load_style_tracker, save_style_tracker
 from sheets.prompt_tracker import load_prompt_tracker, save_prompt_tracker
-from sheets.vision_tracker import log_to_vision_tracker, get_today_count_from_sheet
+from sheets.vision_tracker import log_to_vision_tracker, get_today_count_from_sheet, get_all_processed_filenames
 from sheets.setup          import init_sheets
 
 __all__ = [
@@ -36,7 +36,7 @@ __all__ = [
     # Trackers
     "load_style_tracker", "save_style_tracker",
     "load_prompt_tracker", "save_prompt_tracker",
-    "log_to_vision_tracker", "get_today_count_from_sheet",
+    "log_to_vision_tracker", "get_today_count_from_sheet", "get_all_processed_filenames",
     # Setup
     "init_sheets",
 ]

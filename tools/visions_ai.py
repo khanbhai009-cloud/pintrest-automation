@@ -9,7 +9,7 @@ from googleapiclient.http import MediaIoBaseDownload
 from google import genai
 from google.genai import types
 from config import GEMINI_API_KEY, GOOGLE_CREDS_JSON as CREDENTIALS_JSON, GEMINI_API_KEY_2
-from sheets import log_to_vision_tracker, get_today_count_from_sheet, append_prompt_row
+from sheets import log_to_vision_tracker, get_today_count_from_sheet, append_prompt_row, get_all_processed_filenames
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
@@ -257,6 +257,15 @@ def run_feeder_agent():
     logging.info(f"🚀 Found {len(images)} images | Processed today: {done_today}/{DAILY_IMAGE_LIMIT}")
     _vision_stats["status"] = "processing"
 
+    # Load already-processed filenames once for the whole batch (duplicate guard)
+    already_done: set = set()
+    try:
+        already_done = get_all_processed_filenames()
+        if already_done:
+            logging.info(f"🔒 Duplicate guard loaded — {len(already_done)} already-processed filenames.")
+    except Exception as _e:
+        logging.warning(f"⚠️ Duplicate guard fetch failed: {_e} — proceeding without it.")
+
     processed_count = 0
     for img in images:
         # Check stop between each image
@@ -268,6 +277,17 @@ def run_feeder_agent():
         file_id   = img['id']
         file_name = img['name']
         temp_path = f"/tmp/temp_{file_name}"
+
+        # ── Duplicate guard ────────────────────────────────────────────────
+        if file_name in already_done:
+            # Prompt already extracted — just move the file silently and continue
+            logging.info(f"⏭️ Skipping (already processed): {file_name} — moving to Processed folder.")
+            try:
+                move_file_in_drive(file_id, DRIVE_INPUT_FOLDER_ID, DRIVE_PROCESSED_FOLDER_ID)
+                _vision_stats["queue_count"] = max(0, _vision_stats["queue_count"] - 1)
+            except Exception as _mv_err:
+                logging.warning(f"⚠️ Move failed for duplicate {file_name}: {_mv_err}")
+            continue  # do NOT count against today's limit or re-analyze
 
         try:
             logging.info(f"📥 Downloading: {file_name}")
@@ -288,6 +308,8 @@ def run_feeder_agent():
                 account   = extracted_dna.get("account", "unknown"),
                 status    = "processed"
             )
+            # Add to local set so same-batch duplicates are also caught
+            already_done.add(file_name)
 
             logging.info("🗂️ Moving to Processed Folder...")
             move_file_in_drive(file_id, DRIVE_INPUT_FOLDER_ID, DRIVE_PROCESSED_FOLDER_ID)

@@ -17,9 +17,37 @@ logger = logging.getLogger(__name__)
 _count_cache: dict = {"date": None, "count": 0, "ts": 0.0}
 _COUNT_TTL = 60  # seconds
 
+# ── All-time processed filenames cache (5 min TTL) ────────────────────────
+_names_cache: set  = set()
+_names_cache_ts: float = 0.0
+_NAMES_TTL = 300  # seconds
+
 
 def _invalidate_count_cache() -> None:
+    global _names_cache_ts
     _count_cache["ts"] = 0.0
+    _names_cache_ts    = 0.0  # also bust the filenames cache
+
+
+def get_all_processed_filenames() -> set:
+    """
+    Vision_Tracker sheet se saari processed file names ki set return karo.
+    TTL-cached (5 min) — duplicate detection ke liye use hota hai.
+    """
+    global _names_cache, _names_cache_ts
+    now = time.monotonic()
+    if (now - _names_cache_ts) < _NAMES_TTL:
+        return _names_cache
+    try:
+        sheet   = _open_worksheet("Vision_Tracker")
+        records = sheet.get_all_records()
+        names   = {str(r.get("file_name", "")).strip() for r in records if r.get("file_name")}
+        _names_cache    = names
+        _names_cache_ts = now
+        return names
+    except Exception as e:
+        logger.warning(f"⚠️ Vision_Tracker filenames fetch failed — {type(e).__name__}: {e}")
+        return _names_cache  # return stale cache on failure
 
 
 def log_to_vision_tracker(
