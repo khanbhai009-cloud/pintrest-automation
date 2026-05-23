@@ -62,6 +62,9 @@ CURRENT_TRIGGER: Optional[str] = None
 # Global CMO strategy — injected by Mastermind graph, consumed by publish_next_pin
 CURRENT_CMO_STRATEGY: Optional[dict] = None
 
+# Last posted image URL — set after successful pin post, read by blog pipeline
+LAST_POSTED_IMAGE_URL: Optional[str] = None
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LangGraph State
@@ -250,11 +253,14 @@ async def publish_next_pin(visual_style: str) -> dict:
         return {"success": False, "reason": f"Webhook error: {e}"}
 
     if success:
+        global LAST_POSTED_IMAGE_URL
+        LAST_POSTED_IMAGE_URL = imgbb_url
         return {
-            "success":      True,
-            "visual_style": visual_style,
-            "pin_type":     "VIRAL_PIN",
-            "image_url":    imgbb_url,
+            "success":               True,
+            "visual_style":          visual_style,
+            "pin_type":              "VIRAL_PIN",
+            "image_url":             imgbb_url,
+            "last_posted_image_url": imgbb_url,
         }
 
     return {"success": False, "reason": "Webhook returned failure status."}
@@ -455,8 +461,12 @@ async def run_agent(
         final_state = await agent.ainvoke(initial_state)
         summary = final_state["messages"][-1].content
         logger.info(f"✅ [Agent] Cycle complete:\n{summary}")
-        return {"status": "ok", "summary": summary}
+        return {
+            "status":               "ok",
+            "summary":              summary,
+            "last_posted_image_url": LAST_POSTED_IMAGE_URL or "",
+        }
     except Exception as e:
         msg = f"❌ [Agent] Graph execution failed: {e}"
         logger.error(msg)
-        return {"status": "error", "summary": msg}
+        return {"status": "error", "summary": msg, "last_posted_image_url": ""}

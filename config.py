@@ -39,6 +39,10 @@ GEMINI_IMAGE_MODEL      = os.getenv(
     "gemini-2.5-flash-image",
 )
 
+# ── Blog — Firebase (V4 Addition) ────────────────────────────────────────────
+FIREBASE_CREDS_JSON = os.getenv("FIREBASE_CREDS_JSON", "")
+BLOG_BASE_URL       = os.getenv("BLOG_BASE_URL", "https://yourblog.vercel.app")
+
 PINTEREST_ACCOUNTS = [
     {
         "name":        "Account1_HomeDecor",

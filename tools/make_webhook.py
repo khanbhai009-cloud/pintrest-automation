@@ -12,9 +12,10 @@ async def post_to_pinterest(
     tags: list,
     niche: str = "default",
     target_account: str = None,
-    alt_text: str = ""
+    alt_text: str = "",
+    blog_url: str = "",
 ) -> bool:
-    
+
     # Strictly target account find karo
     if target_account:
         account = next((a for a in PINTEREST_ACCOUNTS if a["name"] == target_account), PINTEREST_ACCOUNTS[0])
@@ -26,16 +27,19 @@ async def post_to_pinterest(
     hashtags = " ".join([f"#{t.strip()}" for t in tags])
     caption  = f"{description}\n\n{hashtags}"
 
+    # blog_url takes priority over affiliate link
+    final_link = blog_url if blog_url else link
+
     payload = {
         "image_url": image_url,
         "title":     title[:100],
         "caption":   caption[:500],
-        "link":      link,
+        "link":      final_link,
         "board_id":  board_id,
         "alt_text":  alt_text,
     }
 
-    logger.info(f"📌 [{account['name']}] Niche: {niche} → Board ID: {board_id}")
+    logger.info(f"📌 [{account['name']}] Niche: {niche} → Board ID: {board_id} | Link: {'blog' if blog_url else 'affiliate'}")
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
