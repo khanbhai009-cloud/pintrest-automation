@@ -9,7 +9,7 @@ Count reads are TTL-cached (60 s) to avoid hammering Sheets quota.
 import logging
 import time
 from datetime import datetime, date
-from sheets.base import _open_worksheet, _throttled_write
+from sheets.base import _open_worksheet, _throttled_write, _throttled_read
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +39,11 @@ def get_all_processed_filenames() -> set:
     if (now - _names_cache_ts) < _NAMES_TTL:
         return _names_cache
     try:
-        sheet   = _open_worksheet("Vision_Tracker")
-        records = sheet.get_all_records()
+        def _read():
+            sheet = _open_worksheet("Vision_Tracker")
+            return sheet.get_all_records()
+
+        records = _throttled_read(_read)
         names   = {str(r.get("file_name", "")).strip() for r in records if r.get("file_name")}
         _names_cache    = names
         _names_cache_ts = now
@@ -101,8 +104,11 @@ def get_today_count_from_sheet() -> int:
         return _count_cache["count"]
 
     try:
-        sheet   = _open_worksheet("Vision_Tracker")
-        records = sheet.get_all_records()
+        def _read():
+            sheet = _open_worksheet("Vision_Tracker")
+            return sheet.get_all_records()
+
+        records = _throttled_read(_read)
         count   = sum(1 for r in records if str(r.get("date", "")).strip() == today)
         _count_cache.update({"date": today, "count": count, "ts": now})
         logger.info(f"✅ Vision_Tracker: {count} images processed today (from Sheets)")

@@ -11,7 +11,7 @@ import json
 import logging
 import os
 import time
-from sheets.base import _open_worksheet, _throttled_write
+from sheets.base import _open_worksheet, _throttled_write, _throttled_read
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +43,11 @@ def load_style_tracker() -> dict:
 
     # 1. Try Google Sheets
     try:
-        sheet   = _open_worksheet("Style_Tracker")
-        records = sheet.get_all_records()
+        def _read():
+            sheet = _open_worksheet("Style_Tracker")
+            return sheet.get_all_records()
+
+        records = _throttled_read(_read)
         if records:
             data = {k: int(v) for k, v in records[0].items() if v != ""}
             logger.info(f"✅ Style_Tracker loaded from Sheets: {data}")

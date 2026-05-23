@@ -7,7 +7,7 @@ TTL: 30 minutes — new rows added to the sheet auto-picked up within 30 min.
 """
 import time
 import logging
-from sheets.base import _open_worksheet
+from sheets.base import _open_worksheet, _throttled_write, _throttled_read
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +26,14 @@ def get_prompts_master() -> list:
     now = time.time()
     if _cache is not None and (now - _cache_ts) < _TTL:
         return _cache
-    ws            = _open_worksheet("Prompts_Master")
-    records       = ws.get_all_records()
-    _cache        = records
-    _cache_ts     = now
+
+    def _read():
+        ws = _open_worksheet("Prompts_Master")
+        return ws.get_all_records()
+
+    records   = _throttled_read(_read)
+    _cache    = records
+    _cache_ts = now
     logger.info(f"✅ [Prompts_Master] {len(records)} prompts loaded (TTL refreshed).")
     return records
 
@@ -47,16 +51,19 @@ def append_prompt_row(data: dict) -> None:
     TTL cache invalidate karta hai taaki next fetch fresh rows laye.
     Columns: style_key | account | label | description | t2i_base | niche_affinity | tags
     """
-    ws  = _open_worksheet("Prompts_Master")
-    row = [
-        data.get("style_key",      ""),
-        data.get("account",        "account_1"),
-        data.get("label",          ""),
-        data.get("description",    ""),
-        data.get("t2i_base",       ""),
-        data.get("niche_affinity", ""),
-        data.get("tags",           ""),
-    ]
-    ws.append_row(row)
+    def _write():
+        ws  = _open_worksheet("Prompts_Master")
+        row = [
+            data.get("style_key",      ""),
+            data.get("account",        "account_1"),
+            data.get("label",          ""),
+            data.get("description",    ""),
+            data.get("t2i_base",       ""),
+            data.get("niche_affinity", ""),
+            data.get("tags",           ""),
+        ]
+        ws.append_row(row)
+
+    _throttled_write(_write)
     invalidate_cache()
     logger.info(f"✅ [Prompts_Master] Row appended: {data.get('style_key')}")

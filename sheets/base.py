@@ -22,9 +22,13 @@ SCOPES = [
 _client: gspread.Client | None = None
 _spreadsheet: gspread.Spreadsheet | None = None
 
-# Minimum seconds between consecutive Sheets API write calls (rate-limit guard)
-_WRITE_MIN_GAP = 1.2
+# ── Rate-limit guards ──────────────────────────────────────────────────────
+# Google Sheets API: 60 write req/min and 300 read req/min per user.
+# We keep a comfortable margin by enforcing minimum gaps between calls.
+_WRITE_MIN_GAP = 3.5   # seconds between consecutive write calls
+_READ_MIN_GAP  = 1.0   # seconds between consecutive read calls
 _last_write_ts: float = 0.0
+_last_read_ts:  float = 0.0
 
 
 def _get_client() -> gspread.Client:
@@ -53,16 +57,35 @@ def _open_worksheet(sheet_name: str) -> gspread.Worksheet:
 
 def _throttled_write(fn):
     """
-    Wrapper: Sheets write calls ke beech mein minimum gap enforce karta hai
-    taaki per-minute quota hit na ho.
+    Wrapper: consecutive Sheets write calls ke beech mein minimum gap enforce
+    karta hai taaki per-minute write quota hit na ho.
     """
     global _last_write_ts
     now = time.monotonic()
     gap = now - _last_write_ts
     if gap < _WRITE_MIN_GAP:
-        time.sleep(_WRITE_MIN_GAP - gap)
+        wait = _WRITE_MIN_GAP - gap
+        logger.debug(f"[Sheets] write throttle — sleeping {wait:.2f}s")
+        time.sleep(wait)
     result = fn()
     _last_write_ts = time.monotonic()
+    return result
+
+
+def _throttled_read(fn):
+    """
+    Wrapper: consecutive Sheets read calls ke beech mein minimum gap enforce
+    karta hai taaki per-minute read quota hit na ho.
+    """
+    global _last_read_ts
+    now = time.monotonic()
+    gap = now - _last_read_ts
+    if gap < _READ_MIN_GAP:
+        wait = _READ_MIN_GAP - gap
+        logger.debug(f"[Sheets] read throttle — sleeping {wait:.2f}s")
+        time.sleep(wait)
+    result = fn()
+    _last_read_ts = time.monotonic()
     return result
 
 

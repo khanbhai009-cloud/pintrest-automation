@@ -7,7 +7,7 @@ Account 2 tab: Analytics_logs2
 """
 import logging
 from datetime import datetime, timedelta
-from sheets.base import _open_worksheet
+from sheets.base import _open_worksheet, _throttled_read
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +18,11 @@ def get_analytics_rows(sheet_name: str, days: int = 7) -> list:
     Returns a list of dicts (one per day).
     Raises on connection error — calling node catches and applies stagnant fallback.
     """
-    ws      = _open_worksheet(sheet_name)
-    records = ws.get_all_records()
+    def _read():
+        ws = _open_worksheet(sheet_name)
+        return ws.get_all_records()
+
+    records = _throttled_read(_read)
 
     if not records:
         logger.warning(f"⚠️  [{sheet_name}] Sheet is empty — no analytics rows.")
