@@ -103,10 +103,23 @@ async def get_best_lifestyle_image(image_urls: list) -> str:
 # ── ENGINES ──
 async def fetch_rapidapi(keyword):
     """RapidAPI Search"""
-    headers = {"x-rapidapi-host": RAPIDAPI_HOST, "x-rapidapi-key": RAPIDAPI_KEY}
+    headers = {
+        "x-rapidapi-host": RAPIDAPI_HOST,
+        "x-rapidapi-key": RAPIDAPI_KEY,
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/125.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30, http2=True) as client:
             r = await client.get(SEARCH_URL, headers=headers, params={"keyword": keyword, "country": "us"})
+            if r.status_code == 503:
+                logger.error(f"❌ RapidAPI 503 — possible Cloudflare block. Response body:\n{r.text[:2000]}")
+                return None
             if r.status_code == 200:
                 data = r.json().get("data", [])
                 products = data.get("products", []) if isinstance(data, dict) else data
