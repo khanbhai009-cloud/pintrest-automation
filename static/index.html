@@ -430,6 +430,10 @@ header {
 .cmo-suggestion:hover { background:rgba(245,158,11,0.16); border-color:rgba(245,158,11,0.4); }
 
 /* ── Products ─────────────────────────────────────────────────── */
+.blog-section {
+  margin-bottom:1.5rem;
+}
+.blog-section .card { border-radius:var(--radius); }
 .products-section {
   background:var(--surface); border:1px solid var(--border);
   border-radius:var(--radius); overflow:hidden; margin-bottom:3rem;
@@ -987,6 +991,69 @@ header {
 
       </div>
 
+      <!-- ── BLOG ENGINE ────────────────────────────────────────── -->
+      <div class="blog-section">
+        <div class="card" style="border-color:rgba(34,197,94,0.2)">
+          <div class="card-head">
+            <div class="card-title" style="color:var(--green)">
+              <span style="width:22px;height:22px;background:linear-gradient(135deg,#16a34a,#22c55e);border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 0 12px rgba(34,197,94,0.3)">📝</span>
+              Blog Engine
+            </div>
+            <div class="badge" id="blog-badge" style="background:rgba(34,197,94,0.1);color:var(--green);border:1px solid rgba(34,197,94,0.3)">IDLE</div>
+          </div>
+          <div class="card-body">
+
+            <!-- Daily counter row -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:1rem">
+              <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.15);border-radius:10px;padding:0.75rem;text-align:center">
+                <div style="font-size:0.7rem;color:var(--text3);font-family:var(--mono);margin-bottom:0.3rem">🏠 ACCOUNT 1 TODAY</div>
+                <div style="font-size:1.5rem;font-weight:700;color:var(--blue)" id="blog-a1-count">—</div>
+                <div style="font-size:0.65rem;color:var(--text3);font-family:var(--mono)" id="blog-a1-limit">/ 5 blogs</div>
+              </div>
+              <div style="background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.15);border-radius:10px;padding:0.75rem;text-align:center">
+                <div style="font-size:0.7rem;color:var(--text3);font-family:var(--mono);margin-bottom:0.3rem">💻 ACCOUNT 2 TODAY</div>
+                <div style="font-size:1.5rem;font-weight:700;color:var(--accent2)" id="blog-a2-count">—</div>
+                <div style="font-size:0.65rem;color:var(--text3);font-family:var(--mono)" id="blog-a2-limit">/ 5 blogs</div>
+              </div>
+            </div>
+
+            <!-- Trigger buttons -->
+            <div style="margin-bottom:0.75rem">
+              <div style="font-size:0.7rem;color:var(--text3);font-family:var(--mono);margin-bottom:0.5rem;letter-spacing:0.05em">MANUAL TRIGGER</div>
+              <div class="btn-grid-3">
+                <button class="btn btn-blue btn-sm" id="blog-btn-a1" onclick="runBlog('account1')">
+                  🏠 Blog Acc 1
+                </button>
+                <button class="btn btn-purple btn-sm" id="blog-btn-a2" onclick="runBlog('account2')">
+                  💻 Blog Acc 2
+                </button>
+                <button class="btn btn-green btn-sm" id="blog-btn-both" onclick="runBlog('both')">
+                  ⚡ Blog Both
+                </button>
+              </div>
+            </div>
+
+            <!-- Last blog info -->
+            <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:10px;padding:0.75rem">
+              <div style="font-size:0.65rem;color:var(--text3);font-family:var(--mono);margin-bottom:0.4rem">LAST BLOG PUBLISHED</div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
+                <div>
+                  <div style="font-size:0.78rem;color:var(--text2);font-family:var(--mono)" id="blog-last-run">—</div>
+                  <div style="font-size:0.7rem;color:var(--text3)" id="blog-last-account">No blogs yet today</div>
+                </div>
+                <a id="blog-last-link" href="#" target="_blank"
+                  style="display:none;font-size:0.7rem;color:var(--green);border:1px solid rgba(34,197,94,0.3);
+                  padding:0.3rem 0.7rem;border-radius:6px;text-decoration:none;white-space:nowrap;
+                  background:rgba(34,197,94,0.08)">
+                  View Post ↗
+                </a>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
       <!-- ── PRODUCTS PIPELINE ───────────────────────────────────── -->
       <div class="products-section">
         <div class="products-head">
@@ -1187,6 +1254,85 @@ async function stopAll() {
   await fetch(BASE+'api/stop', { method: 'POST' });
   await fetch(BASE+'api/mastermind/stop', { method: 'POST' });
   toast('⏹ Stop signal sent — cycle will finish gracefully','var(--orange)');
+}
+
+// ── Blog Engine ─────────────────────────────────────────────────────────────
+const BLOG_BTNS = ['blog-btn-a1','blog-btn-a2','blog-btn-both'];
+
+function setBlogBtns(disabled) {
+  BLOG_BTNS.forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.disabled = disabled;
+  });
+}
+
+async function runBlog(which) {
+  let endpoint = 'api/blog/run-both';
+  if (which === 'account1') endpoint = 'api/blog/run-account1';
+  else if (which === 'account2') endpoint = 'api/blog/run-account2';
+
+  setBlogBtns(true);
+  document.getElementById('blog-badge').textContent = 'RUNNING...';
+  document.getElementById('blog-badge').style.background = 'rgba(249,115,22,0.15)';
+  document.getElementById('blog-badge').style.color = 'var(--orange)';
+
+  try {
+    const d = await (await fetch(BASE + endpoint, { method: 'POST' })).json();
+    if (d.status === 'busy') {
+      toast('⚠️ Blog pipeline already running!', 'var(--orange)');
+      setBlogBtns(false);
+      return;
+    }
+    const label = which === 'both' ? 'Both Accounts' : which === 'account1' ? 'Account 1 🏠' : 'Account 2 💻';
+    toast(`📝 Blog pipeline started — ${label}`, 'var(--green)');
+    // Poll until done
+    const blogPoll = setInterval(async () => {
+      const s = await (await fetch(BASE+'api/blog/stats')).json();
+      updateBlogStats(s);
+      if (!s.running) {
+        clearInterval(blogPoll);
+        setBlogBtns(false);
+        document.getElementById('blog-badge').textContent = 'IDLE';
+        document.getElementById('blog-badge').style.background = 'rgba(34,197,94,0.1)';
+        document.getElementById('blog-badge').style.color = 'var(--green)';
+        if (s.last_url) toast(`📝 Blog live! ${s.last_url.substring(0,50)}...`, 'var(--green)');
+      }
+    }, 3000);
+  } catch(e) {
+    toast('❌ Blog trigger failed','var(--red)');
+    setBlogBtns(false);
+  }
+}
+
+function updateBlogStats(s) {
+  const a1 = document.getElementById('blog-a1-count');
+  const a2 = document.getElementById('blog-a2-count');
+  const lastRun = document.getElementById('blog-last-run');
+  const lastAcct = document.getElementById('blog-last-account');
+  const lastLink = document.getElementById('blog-last-link');
+
+  if (a1) a1.textContent = s.a1_count ?? '—';
+  if (a2) a2.textContent = s.a2_count ?? '—';
+  if (lastRun) lastRun.textContent = s.last_run || '—';
+  if (lastAcct) lastAcct.textContent = s.last_account !== '—' ? `Last: ${s.last_account}` : 'No blogs yet today';
+
+  if (lastLink && s.last_url) {
+    lastLink.href    = s.last_url;
+    lastLink.style.display = 'block';
+  }
+}
+
+async function loadBlogStats() {
+  try {
+    const s = await (await fetch(BASE+'api/blog/stats')).json();
+    updateBlogStats(s);
+    const badge = document.getElementById('blog-badge');
+    if (badge) {
+      badge.textContent = s.running ? 'RUNNING...' : 'IDLE';
+      badge.style.background = s.running ? 'rgba(249,115,22,0.15)' : 'rgba(34,197,94,0.1)';
+      badge.style.color = s.running ? 'var(--orange)' : 'var(--green)';
+    }
+  } catch(e) { console.warn('Blog stats error:', e); }
 }
 
 async function utilCall(ep, btnId, label) {
@@ -1510,12 +1656,13 @@ async function visionStart() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 async function init() {
-  await Promise.all([loadStats(), loadMastermindStats(), loadProducts(), loadVisionStats(), loadNextPins()]);
+  await Promise.all([loadStats(), loadMastermindStats(), loadProducts(), loadVisionStats(), loadNextPins(), loadBlogStats()]);
   // Periodic refresh — slow poll when idle
   setInterval(() => { loadStats(); loadMastermindStats(); }, 20000);
   setInterval(loadVisionStats, 8000);
   setInterval(loadProducts, 60000);
   setInterval(loadNextPins, 30000);
+  setInterval(loadBlogStats, 15000);
 }
 
 init();

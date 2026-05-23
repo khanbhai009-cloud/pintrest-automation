@@ -45,6 +45,11 @@ state = {
     "stop_requested": False,
     "vision_feeder_running": False,
     "vision_feeder_paused": False,
+    # ── Blog Engine (V4) ───────────────────────────────────────
+    "blog_running": False,
+    "blog_last_url": "",
+    "blog_last_run": None,
+    "blog_last_account": "—",
 }
 
 scheduler = AsyncIOScheduler(timezone="America/New_York")
@@ -340,6 +345,131 @@ async def run_mm_a2(background_tasks: BackgroundTasks):
 async def stop_mastermind():
     state["stop_requested"] = True
     return {"status": "stop_requested", "message": "Stop signal sent. Current cycle will finish gracefully."}
+
+# ── Blog Engine — Standalone Runner ───────────────────────────────────────────
+
+async def _run_blog_pipeline(account: str):
+    """
+    Standalone 4-node blog pipeline runner.
+    Does NOT require a fresh pin — uses LAST_POSTED_IMAGE_URL from agent module.
+    """
+    if state["blog_running"]:
+        logger.warning("⚠️ Blog pipeline already running — skip")
+        return
+
+    state["blog_running"]      = True
+    state["blog_last_account"] = account
+    state["blog_last_run"]     = datetime.now().strftime("%H:%M")
+
+    try:
+        from agent import LAST_POSTED_IMAGE_URL
+        from mastermind.node_blog_trigger import node_blog_trigger
+        from mastermind.node_product_researcher import node_product_researcher
+        from mastermind.node_blog_writer import node_blog_writer
+        from mastermind.node_firebase_publisher import node_firebase_publisher
+
+        trigger = f"manual-{account}"
+        img_url = LAST_POSTED_IMAGE_URL or ""
+
+        # Determine CMO strategy from last mastermind run
+        if account == "account1":
+            cmo_strategy = {
+                "strategy":   state.get("mastermind_a1_strategy", "VIRAL_PIN"),
+                "style_name": state.get("mastermind_a1_strategy", "aesthetic"),
+                "pin_type":   "VIRAL_PIN",
+            }
+        else:
+            cmo_strategy = {
+                "strategy":   state.get("mastermind_a2_strategy", "VIRAL_PIN"),
+                "style_name": state.get("mastermind_a2_strategy", "aesthetic"),
+                "pin_type":   "VIRAL_PIN",
+            }
+
+        initial_state = {
+            # Required for node_blog_writer
+            "a1_cmo_strategy":      cmo_strategy if account == "account1" else {},
+            "a2_cmo_strategy":      cmo_strategy if account == "account2" else {},
+            # Blog pipeline fields
+            "last_posted_image_url": img_url,
+            "should_create_blog":    False,
+            "blog_products":         [],
+            "blog_content":          {},
+            "blog_url":              "",
+            "blog_published":        False,
+            # Trigger
+            "cycle_trigger": trigger,
+            # Required by state schema (ignored in standalone run)
+            "a1_raw_analytics":  [],
+            "a2_raw_analytics":  [],
+            "a1_final_seo_copy": {},
+            "a2_final_seo_copy": {},
+            "a1_publish_status": {},
+            "a2_publish_status": {},
+            "fallback_triggered": False,
+        }
+
+        s = await node_blog_trigger(initial_state)
+        s = await node_product_researcher(s)
+        s = await node_blog_writer(s)
+        s = await node_firebase_publisher(s)
+
+        blog_url = s.get("blog_url", "")
+        if blog_url:
+            state["blog_last_url"] = blog_url
+            logger.info(f"✅ Blog published [{account}]: {blog_url}")
+        else:
+            logger.warning(f"⚠️ Blog pipeline ran but no URL returned [{account}]")
+
+    except Exception as e:
+        logger.error(f"❌ Blog pipeline error [{account}]: {e}")
+    finally:
+        state["blog_running"] = False
+
+
+# ── Blog Engine API Endpoints ──────────────────────────────────────────────────
+
+@app.get("/api/blog/stats")
+async def blog_stats():
+    """Return today's blog counts + last blog info."""
+    counts = {"account1": 0, "account2": 0, "limit": 5}
+    try:
+        from tools.firebase_publisher import get_daily_blog_counts
+        counts = await get_daily_blog_counts()
+    except Exception:
+        pass
+    return {
+        "running":      state["blog_running"],
+        "last_url":     state["blog_last_url"],
+        "last_run":     state["blog_last_run"] or "—",
+        "last_account": state["blog_last_account"],
+        "a1_count":     counts.get("account1", 0),
+        "a2_count":     counts.get("account2", 0),
+        "limit":        counts.get("limit", 5),
+    }
+
+@app.post("/api/blog/run-account1")
+async def blog_run_a1(background_tasks: BackgroundTasks):
+    if state["blog_running"]:
+        return {"status": "busy", "message": "Blog pipeline already running!"}
+    background_tasks.add_task(_run_blog_pipeline, "account1")
+    return {"status": "started", "message": "Blog pipeline started for Account 1 🏠"}
+
+@app.post("/api/blog/run-account2")
+async def blog_run_a2(background_tasks: BackgroundTasks):
+    if state["blog_running"]:
+        return {"status": "busy", "message": "Blog pipeline already running!"}
+    background_tasks.add_task(_run_blog_pipeline, "account2")
+    return {"status": "started", "message": "Blog pipeline started for Account 2 💻"}
+
+@app.post("/api/blog/run-both")
+async def blog_run_both(background_tasks: BackgroundTasks):
+    if state["blog_running"]:
+        return {"status": "busy", "message": "Blog pipeline already running!"}
+    async def _run_both():
+        await _run_blog_pipeline("account1")
+        await _run_blog_pipeline("account2")
+    background_tasks.add_task(_run_both)
+    return {"status": "started", "message": "Blog pipeline started for both accounts 🚀"}
 
 # ── Vision Feeder Controls ─────────────────────────────────────────────────────
 @app.get("/api/vision/stats")

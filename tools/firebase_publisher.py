@@ -156,13 +156,18 @@ async def _update_collection(db, blog_data: dict) -> None:
         logger.error(f"❌ [Firebase] _update_collection failed: {e}")
 
 
-async def check_and_increment_daily_counter() -> bool:
+async def check_and_increment_daily_counter(account: str = "account1") -> bool:
     """
-    Check and increment today's blog post counter.
+    Check and increment today's blog post counter (per account).
+
+    Limit: 5 blogs per account per day (10 total across both accounts).
+
+    Args:
+        account: "account1" or "account2"
 
     Returns:
         True  — proceed (limit not reached, counter incremented)
-        False — skip (2 posts already published today)
+        False — skip (5 posts already published today for this account)
     """
     try:
         from firebase_admin import firestore as _fs
@@ -172,25 +177,47 @@ async def check_and_increment_daily_counter() -> bool:
             return False
 
         today   = str(date.today())
-        doc_ref = db.collection("daily_counter").document(today)
+        doc_id  = f"{today}-{account}"
+        doc_ref = db.collection("daily_counter").document(doc_id)
         snap    = doc_ref.get()
+        limit   = 5
 
         if snap.exists:
             count = snap.to_dict().get("blog_count", 0)
-            if count >= 2:
-                logger.info(f"📊 [Firebase] Daily blog limit reached ({count}/2) for {today}")
+            if count >= limit:
+                logger.info(f"📊 [Firebase] Daily limit reached ({count}/{limit}) for {account} on {today}")
                 return False
             doc_ref.update({"blog_count": _fs.Increment(1)})
-            logger.info(f"📊 [Firebase] Daily counter: {count + 1}/2 for {today}")
+            logger.info(f"📊 [Firebase] Daily counter [{account}]: {count + 1}/{limit}")
             return True
         else:
-            doc_ref.set({"blog_count": 1, "date": today})
-            logger.info(f"📊 [Firebase] Daily counter started: 1/2 for {today}")
+            doc_ref.set({"blog_count": 1, "date": today, "account": account})
+            logger.info(f"📊 [Firebase] Daily counter [{account}] started: 1/{limit}")
             return True
 
     except Exception as e:
         logger.error(f"❌ [Firebase] check_and_increment_daily_counter failed: {e}")
         return False
+
+
+async def get_daily_blog_counts() -> dict:
+    """Return today's blog post counts for both accounts."""
+    try:
+        db = _get_db()
+        if not db:
+            return {"account1": 0, "account2": 0, "limit": 5}
+
+        today = str(date.today())
+        counts = {}
+        for acct in ["account1", "account2"]:
+            snap = db.collection("daily_counter").document(f"{today}-{acct}").get()
+            counts[acct] = snap.to_dict().get("blog_count", 0) if snap.exists else 0
+        counts["limit"] = 5
+        return counts
+
+    except Exception as e:
+        logger.error(f"❌ [Firebase] get_daily_blog_counts failed: {e}")
+        return {"account1": 0, "account2": 0, "limit": 5}
 
 
 async def get_all_posts(limit: int = 20) -> list:
