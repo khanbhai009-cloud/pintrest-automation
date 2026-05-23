@@ -1,10 +1,11 @@
 """
 mastermind/node_blog_writer.py — Node 6: Blog Writer
 
-Uses Gemini 2.5 Flash to write a complete SEO blog post based on:
-  - CMO strategy (style_name, title, tags, visual_prompt)
-  - blog_products (fetched by node_product_researcher)
-  - last_posted_image_url (the Pinterest pin image)
+4-Model Text Fallback Chain (10s wait between each, once per model):
+  1st → Gemini Key 1  (GEMINI_API_KEY)   — gemini-2.5-flash
+  2nd → Gemini Key 2  (GEMINI_API_KEY_2) — gemini-2.5-flash
+  3rd → Groq          (GROQ_API_KEY)     — llama-3.3-70b-versatile
+  4th → Cerebras      (CEREBRAS_API_KEY) — qwen-3-235b
 
 State input:  should_create_blog, blog_products, cmo_strategy, last_posted_image_url
 State output: blog_content (complete blog dict ready for Firebase)
@@ -16,23 +17,28 @@ import logging
 import re
 import unicodedata
 
-from config import GEMINI_API_KEY
+from config import (
+    GEMINI_API_KEY, GEMINI_API_KEY_2,
+    GROQ_API_KEY, GROQ_MODEL,
+    CEREBRAS_API_KEY, CEREBRAS_VISION_MODEL,
+    VISION_RETRY_DELAY,
+)
 
 logger = logging.getLogger(__name__)
 
 _NICHE_MAP = {
-    "kitchen": ("home-decor", "kitchen"),
-    "bedroom": ("home-decor", "bedroom"),
-    "living room": ("home-decor", "living-room"),
-    "bathroom": ("home-decor", "bathroom"),
-    "home office": ("home-decor", "home-office"),
-    "desk": ("tech-setup", "desk-setup"),
-    "tech": ("tech-setup", "gadgets"),
-    "gaming": ("tech-setup", "gaming"),
-    "phone": ("tech-setup", "phone"),
-    "cozy": ("home-decor", "cozy"),
-    "organize": ("home-decor", "organization"),
-    "gadgets": ("home-decor", "gadgets"),
+    "kitchen":     ("home-decor",  "kitchen"),
+    "bedroom":     ("home-decor",  "bedroom"),
+    "living room": ("home-decor",  "living-room"),
+    "bathroom":    ("home-decor",  "bathroom"),
+    "home office": ("home-decor",  "home-office"),
+    "desk":        ("tech-setup",  "desk-setup"),
+    "tech":        ("tech-setup",  "gadgets"),
+    "gaming":      ("tech-setup",  "gaming"),
+    "phone":       ("tech-setup",  "phone"),
+    "cozy":        ("home-decor",  "cozy"),
+    "organize":    ("home-decor",  "organization"),
+    "gadgets":     ("home-decor",  "gadgets"),
 }
 
 
@@ -59,14 +65,12 @@ def _build_writer_prompt(strategy: dict, products: list, image_url: str) -> str:
     visual_prompt = strategy.get("visual_prompt", "")
     primary_kw    = tags[0] if tags else style_name
 
-    products_brief = ""
     if products:
-        lines = []
-        for i, p in enumerate(products, 1):
-            lines.append(
-                f"  Product {i}: {p['name']} — {p.get('price','?')} "
-                f"(insert after para {p.get('insert_after_para', i*2)}): {p.get('why_fits','')}"
-            )
+        lines = [
+            f"  Product {i}: {p['name']} — {p.get('price','?')} "
+            f"(insert after para {p.get('insert_after_para', i*2)}): {p.get('why_fits','')}"
+            for i, p in enumerate(products, 1)
+        ]
         products_brief = "\n".join(lines)
     else:
         products_brief = "  No specific products — write general lifestyle content."
@@ -87,7 +91,7 @@ PRODUCTS TO MENTION NATURALLY (do not write "sponsored" or "affiliate"):
 WRITING RULES:
   • Write exactly 9 paragraphs (id: 1 through 9)
   • Each paragraph: 120–150 words, engaging, human-sounding, NOT robotic
-  • Naturally weave in the products listed above in the paragraphs near their suggested insert point
+  • Naturally weave in the products listed above near their suggested insert point
   • Do NOT use the word "affiliate", "sponsored", "commission", or "paid"
   • Sound like a genuine lifestyle blogger recommendation
   • Include the primary keyword naturally in paragraphs 1, 4, and 8
@@ -129,16 +133,132 @@ OUTPUT ONLY valid raw JSON (no markdown, no explanation):
 }}"""
 
 
+def _parse_blog_json(raw: str) -> dict:
+    cleaned = re.sub(r"```(?:json)?", "", raw).strip().rstrip("`").strip()
+    start = cleaned.find("{")
+    end   = cleaned.rfind("}") + 1
+    if start == -1 or end == 0:
+        return {}
+    return json.loads(cleaned[start:end])
+
+
+# ── 4-Model Text Fallback Chain ───────────────────────────────────────────────
+
+async def _try_gemini_text(api_key: str, prompt: str, key_label: str) -> dict:
+    if not api_key:
+        raise RuntimeError(f"Gemini {key_label} not set")
+
+    from google import genai
+    from google.genai import types as genai_types
+
+    client = genai.Client(api_key=api_key)
+
+    def _sync():
+        return client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=genai_types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.6,
+                max_output_tokens=3000,
+            ),
+        )
+
+    response = await asyncio.wait_for(asyncio.to_thread(_sync), timeout=120)
+    return _parse_blog_json(response.text)
+
+
+async def _try_groq_text(prompt: str) -> dict:
+    if not GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY not set")
+
+    from groq import Groq
+
+    def _sync():
+        client = Groq(api_key=GROQ_API_KEY)
+        return client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": "You are an expert SEO blog writer. Always respond with valid JSON only."},
+                {"role": "user",   "content": prompt},
+            ],
+            max_tokens=3000,
+            temperature=0.6,
+            response_format={"type": "json_object"},
+        )
+
+    response = await asyncio.wait_for(asyncio.to_thread(_sync), timeout=120)
+    return _parse_blog_json(response.choices[0].message.content)
+
+
+async def _try_cerebras_text(prompt: str) -> dict:
+    if not CEREBRAS_API_KEY:
+        raise RuntimeError("CEREBRAS_API_KEY not set")
+
+    from openai import OpenAI
+
+    def _sync():
+        client = OpenAI(
+            api_key=CEREBRAS_API_KEY,
+            base_url="https://api.cerebras.ai/v1",
+        )
+        return client.chat.completions.create(
+            model=CEREBRAS_VISION_MODEL,
+            messages=[
+                {"role": "system", "content": "You are an expert SEO blog writer. Always respond with valid JSON only."},
+                {"role": "user",   "content": prompt},
+            ],
+            max_tokens=3000,
+            temperature=0.6,
+        )
+
+    response = await asyncio.wait_for(asyncio.to_thread(_sync), timeout=120)
+    return _parse_blog_json(response.choices[0].message.content)
+
+
+async def _write_blog_with_fallback(prompt: str) -> dict:
+    """
+    4-model fallback chain — 10s wait between each attempt, once per model.
+    Returns blog content dict (empty if all 4 fail).
+    """
+    attempts = [
+        ("Gemini Key 1", lambda: _try_gemini_text(GEMINI_API_KEY,  prompt, "Key 1")),
+        ("Gemini Key 2", lambda: _try_gemini_text(GEMINI_API_KEY_2, prompt, "Key 2")),
+        ("Groq",         lambda: _try_groq_text(prompt)),
+        ("Cerebras",     lambda: _try_cerebras_text(prompt)),
+    ]
+
+    for label, fn in attempts:
+        try:
+            logger.info(f"✍️ [BlogWriter] Trying {label}...")
+            result = await fn()
+            if result and result.get("title"):
+                logger.info(f"✅ [BlogWriter] {label} succeeded")
+                return result
+            logger.warning(f"⚠️ [BlogWriter] {label} returned invalid/empty blog")
+        except Exception as e:
+            logger.warning(f"⚠️ [BlogWriter] {label} failed: {str(e)[:120]}")
+
+        logger.info(f"⏳ [BlogWriter] Waiting {VISION_RETRY_DELAY}s before next model...")
+        await asyncio.sleep(VISION_RETRY_DELAY)
+
+    logger.error("❌ [BlogWriter] All 4 models failed — returning empty blog")
+    return {}
+
+
+# ── Node ──────────────────────────────────────────────────────────────────────
+
 async def node_blog_writer(state: dict) -> dict:
     """
     Node 6 — Blog Writer.
     Skips if should_create_blog is False.
+    Uses 4-model text fallback chain.
     """
     if not state.get("should_create_blog"):
         logger.info("✍️ [BlogWriter] Skipping — should_create_blog=False")
         return {**state, "blog_content": {}}
 
-    trigger   = state.get("cycle_trigger", "")
+    trigger = state.get("cycle_trigger", "")
     if "account2" in trigger and "account1" not in trigger:
         strategy = state.get("a2_cmo_strategy", {})
         account  = "Account2_Tech"
@@ -149,56 +269,19 @@ async def node_blog_writer(state: dict) -> dict:
     products  = state.get("blog_products", [])
     image_url = state.get("last_posted_image_url", "")
 
-    if not GEMINI_API_KEY:
-        logger.error("❌ [BlogWriter] GEMINI_API_KEY not set.")
-        return {**state, "blog_content": {}}
-
     prompt = _build_writer_prompt(strategy, products, image_url)
 
-    try:
-        from google import genai
-        from google.genai import types as genai_types
+    blog_content = await _write_blog_with_fallback(prompt)
 
-        client = genai.Client(api_key=GEMINI_API_KEY)
-
-        def _sync_call():
-            return client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
-                config=genai_types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.6,
-                    max_output_tokens=3000,
-                ),
-            )
-
-        response = await asyncio.wait_for(
-            asyncio.to_thread(_sync_call),
-            timeout=120,
-        )
-        raw = response.text
-
-    except Exception as e:
-        logger.error(f"❌ [BlogWriter] Gemini call failed: {e}")
+    if not blog_content:
         return {**state, "blog_content": {}}
 
-    try:
-        cleaned = re.sub(r"```(?:json)?", "", raw).strip().rstrip("`").strip()
-        start = cleaned.find("{")
-        end   = cleaned.rfind("}") + 1
-        blog_content = json.loads(cleaned[start:end])
-    except Exception as e:
-        logger.error(f"❌ [BlogWriter] JSON parse failed: {e}\nRaw: {raw[:300]}")
-        return {**state, "blog_content": {}}
-
-    # Ensure slug is URL-safe
+    # ── Post-processing ───────────────────────────────────────────────────────
     if blog_content.get("title") and not blog_content.get("slug"):
         blog_content["slug"] = _slugify(blog_content["title"])
 
-    # Inject account info
     blog_content["account"] = account
 
-    # Infer niche/sub_niche if Gemini didn't follow instructions exactly
     niche, sub_niche = _infer_niche(
         blog_content.get("style_name", strategy.get("style_name", "")),
         blog_content.get("title", ""),
@@ -210,8 +293,8 @@ async def node_blog_writer(state: dict) -> dict:
     if not blog_content.get("collection_tag"):
         blog_content["collection_tag"] = f"{blog_content['niche']}/{blog_content['sub_niche']}"
 
-    title = blog_content.get("title", "?")
+    title      = blog_content.get("title", "?")
     para_count = len(blog_content.get("paragraphs", []))
-    logger.info(f"✍️ Blog written: {title} ({para_count} paragraphs)")
+    logger.info(f"✍️ Blog written: '{title}' ({para_count} paragraphs)")
 
     return {**state, "blog_content": blog_content}
