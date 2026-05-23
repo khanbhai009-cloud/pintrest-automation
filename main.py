@@ -507,6 +507,60 @@ async def vision_start():
     logger.info("👁️ Vision Feeder resumed via dashboard.")
     return {"status": "running", "message": "Vision Feeder resumed."}
 
+# ── Force Pin + Blog (bypasses daily blog limit) ───────────────────────────────
+
+async def _force_pin_job(account: str):
+    """
+    Runs a full pin + blog cycle for one account with force_blog=True,
+    bypassing the daily blog counter. Reuses the mastermind_running guard.
+    """
+    if state["mastermind_running"]:
+        logger.warning(f"⚠️ Force-pin skipped — mastermind already running ({account})")
+        return
+
+    trigger = f"force-pin-{account}"
+    state["mastermind_running"] = True
+    state["mastermind_last_run"] = datetime.now().strftime("%H:%M")
+    try:
+        logger.info(f"⚡ [Force Pin] START — {account} (blog limit bypassed)")
+        result = await run_mastermind(trigger=trigger, force_blog=True)
+        state["mastermind_a1_strategy"] = result.get("a1_strategy", state["mastermind_a1_strategy"])
+        state["mastermind_a2_strategy"] = result.get("a2_strategy", state["mastermind_a2_strategy"])
+        state["mastermind_fallback"]    = result.get("fallback_triggered", False)
+        state["last_summary"]           = result.get("summary", "")
+        logger.info(f"⚡ [Force Pin] DONE — {account}")
+    except Exception as e:
+        logger.error(f"❌ [Force Pin] Error ({account}): {e}")
+        state["last_summary"] = f"Force pin error: {e}"
+    finally:
+        state["mastermind_running"] = False
+
+
+@app.post("/api/force-pin/account1")
+async def force_pin_a1(background_tasks: BackgroundTasks):
+    if state["mastermind_running"]:
+        return {"status": "busy", "message": "Mastermind already running — try again shortly."}
+    background_tasks.add_task(_force_pin_job, "account1")
+    return {"status": "started", "message": "⚡ Force Pin + Blog started for Account 1 (limit bypassed)"}
+
+@app.post("/api/force-pin/account2")
+async def force_pin_a2(background_tasks: BackgroundTasks):
+    if state["mastermind_running"]:
+        return {"status": "busy", "message": "Mastermind already running — try again shortly."}
+    background_tasks.add_task(_force_pin_job, "account2")
+    return {"status": "started", "message": "⚡ Force Pin + Blog started for Account 2 (limit bypassed)"}
+
+@app.post("/api/force-pin/both")
+async def force_pin_both(background_tasks: BackgroundTasks):
+    if state["mastermind_running"]:
+        return {"status": "busy", "message": "Mastermind already running — try again shortly."}
+    async def _run_both():
+        await _force_pin_job("account1")
+        await _force_pin_job("account2")
+    background_tasks.add_task(_run_both)
+    return {"status": "started", "message": "⚡ Force Pin + Blog started for Both Accounts (limit bypassed)"}
+
+
 # ── Account Triggers (legacy + new) ───────────────────────────────────────────
 @app.post("/api/run-account1")
 async def run_a1(background_tasks: BackgroundTasks):

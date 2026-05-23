@@ -1054,6 +1054,36 @@ header {
         </div>
       </div>
 
+      <!-- ── FORCE PIN + BLOG ────────────────────────────────────── -->
+      <div class="card" style="margin-bottom:1.5rem;border-color:rgba(239,68,68,0.25)">
+        <div class="card-head" style="background:rgba(239,68,68,0.04)">
+          <div class="card-title" style="color:var(--red)">
+            <span>⚡</span> FORCE PIN + BLOG
+            <span style="font-family:var(--mono);font-size:0.55rem;color:var(--text3);font-weight:400;margin-left:0.5rem;letter-spacing:0">Bypasses daily blog limit</span>
+          </div>
+          <div class="badge" id="force-badge" style="background:rgba(71,85,105,0.2);color:var(--text3);border:1px solid var(--border)">READY</div>
+        </div>
+        <div class="card-body">
+          <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);border-radius:10px;padding:0.8rem 1rem;margin-bottom:1rem;font-family:var(--mono);font-size:0.68rem;color:var(--text2);line-height:1.6">
+            Runs a <strong style="color:var(--text)">full pin + blog cycle</strong> immediately — ignores the 5/day blog counter. Use when you've hit the daily limit but still want a blog published with the pin.
+          </div>
+          <div class="btn-grid-3" style="margin-bottom:0.9rem">
+            <button class="btn btn-red btn-sm" id="force-btn-a1" onclick="forcePin('account1')">
+              ⚡ Force A1 🏠
+            </button>
+            <button class="btn btn-red btn-sm" id="force-btn-a2" onclick="forcePin('account2')">
+              ⚡ Force A2 💻
+            </button>
+            <button class="btn btn-sm" id="force-btn-both"
+              style="background:rgba(239,68,68,0.18);color:var(--red);border:1px solid rgba(239,68,68,0.4)"
+              onclick="forcePin('both')">
+              ⚡ Force Both
+            </button>
+          </div>
+          <div id="force-result" style="display:none;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;padding:0.75rem 1rem;font-family:var(--mono);font-size:0.68rem;color:var(--text2);line-height:1.6;word-break:break-word"></div>
+        </div>
+      </div>
+
       <!-- ── PRODUCTS PIPELINE ───────────────────────────────────── -->
       <div class="products-section">
         <div class="products-head">
@@ -1333,6 +1363,88 @@ async function loadBlogStats() {
       badge.style.color = s.running ? 'var(--orange)' : 'var(--green)';
     }
   } catch(e) { console.warn('Blog stats error:', e); }
+}
+
+// ── Force Pin + Blog ────────────────────────────────────────────────────────
+const FORCE_BTNS = ['force-btn-a1', 'force-btn-a2', 'force-btn-both'];
+
+function setForceBtns(disabled) {
+  FORCE_BTNS.forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.disabled = disabled;
+  });
+}
+
+function setForceBadge(running) {
+  const badge = document.getElementById('force-badge');
+  if (!badge) return;
+  if (running) {
+    badge.textContent = 'RUNNING...';
+    badge.style.cssText = 'background:rgba(249,115,22,0.12);color:var(--orange);border:1px solid rgba(249,115,22,0.3);animation:blink 1.5s infinite';
+  } else {
+    badge.textContent = 'READY';
+    badge.style.cssText = 'background:rgba(71,85,105,0.2);color:var(--text3);border:1px solid var(--border)';
+  }
+}
+
+function showForceResult(msg, isErr) {
+  const el = document.getElementById('force-result');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = 'block';
+  el.style.color = isErr ? 'var(--red)' : 'var(--green)';
+  el.style.borderColor = isErr ? 'rgba(239,68,68,0.25)' : 'rgba(34,197,94,0.2)';
+}
+
+async function forcePin(which) {
+  let endpoint = 'api/force-pin/both';
+  if (which === 'account1') endpoint = 'api/force-pin/account1';
+  else if (which === 'account2') endpoint = 'api/force-pin/account2';
+
+  setForceBtns(true);
+  setForceBadge(true);
+  showForceResult('⚡ Force pin started — running full cycle with blog limit bypassed...', false);
+  setRunBtns(true);
+
+  try {
+    const d = await (await fetch(BASE + endpoint, { method: 'POST' })).json();
+    if (d.status === 'busy') {
+      toast('⚠️ Mastermind already running — wait for it to finish!', 'var(--orange)');
+      showForceResult('⚠️ Already running. Try again in a moment.', true);
+      setForceBtns(false);
+      setForceBadge(false);
+      setRunBtns(false);
+      return;
+    }
+    const label = which === 'both' ? 'Both Accounts' : which === 'account1' ? 'Account 1 🏠' : 'Account 2 💻';
+    toast(`⚡ Force Pin + Blog launched — ${label}`, 'var(--red)');
+    startMmPoll();
+
+    // Poll until mastermind finishes, then show result
+    const forcePoll = setInterval(async () => {
+      const s = await (await fetch(BASE + 'api/mastermind/stats')).json();
+      if (!s.running) {
+        clearInterval(forcePoll);
+        setForceBtns(false);
+        setForceBadge(false);
+        setRunBtns(false);
+        stopMmPoll();
+        loadMastermindStats();
+        loadStats();
+        showForceResult(
+          `✅ Done! ${label} — pin posted + blog published (limit bypassed).\nCheck Mastermind panel for strategy details.`,
+          false
+        );
+        toast('✅ Force Pin + Blog complete!', 'var(--green)');
+      }
+    }, 3000);
+  } catch(e) {
+    toast('❌ Force pin failed — check server logs', 'var(--red)');
+    showForceResult('❌ Request failed. Check server logs.', true);
+    setForceBtns(false);
+    setForceBadge(false);
+    setRunBtns(false);
+  }
 }
 
 async function utilCall(ep, btnId, label) {

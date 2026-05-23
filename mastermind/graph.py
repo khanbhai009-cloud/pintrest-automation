@@ -111,7 +111,7 @@ def build_mastermind_graph():
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
 
-async def run_mastermind(trigger: str = "scheduled") -> dict:
+async def run_mastermind(trigger: str = "scheduled", force_blog: bool = False) -> dict:
     """
     Entry-point for the Mastermind CEO pipeline.
 
@@ -143,6 +143,7 @@ async def run_mastermind(trigger: str = "scheduled") -> dict:
         "blog_content":          {},
         "blog_url":              "",
         "blog_published":        False,
+        "force_blog":            force_blog,
     }
 
     try:

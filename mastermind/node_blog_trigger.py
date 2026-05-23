@@ -44,16 +44,19 @@ async def node_blog_trigger(state: dict) -> dict:
     if not state.get("last_posted_image_url"):
         return _skip("last_posted_image_url is empty — no pin was posted")
 
-    # ── Check 3: Per-account daily blog limit ─────────────────────────────────
+    # ── Check 3: Per-account daily blog limit (bypassed when force_blog=True) ──
     account = _get_account(state.get("cycle_trigger", ""))
-    try:
-        from tools.firebase_publisher import check_and_increment_daily_counter
-        can_post = await check_and_increment_daily_counter(account=account)
-        if not can_post:
-            return _skip(f"daily blog limit reached (5/5) for {account}")
-    except Exception as e:
-        logger.error(f"❌ [BlogTrigger] Counter check failed: {e}")
-        return _skip(f"counter check error: {e}")
+    if state.get("force_blog"):
+        logger.info(f"📝 Blog trigger: daily limit BYPASSED (force_blog=True) for {account}")
+    else:
+        try:
+            from tools.firebase_publisher import check_and_increment_daily_counter
+            can_post = await check_and_increment_daily_counter(account=account)
+            if not can_post:
+                return _skip(f"daily blog limit reached (5/5) for {account}")
+        except Exception as e:
+            logger.error(f"❌ [BlogTrigger] Counter check failed: {e}")
+            return _skip(f"counter check error: {e}")
 
     logger.info(f"📝 Blog trigger: GO ✅ (account={account})")
     return {**state, "should_create_blog": True}

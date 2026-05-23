@@ -34,3 +34,4 @@ class MastermindState(TypedDict):
     blog_content:          Optional[Dict[str, Any]]        # node_blog_writer
     blog_url:              Optional[str]   # node_firebase_publisher result
     blog_published:        Optional[bool]  # True if Firebase save succeeded
+    force_blog:            Optional[bool]  # bypass daily blog limit when True
