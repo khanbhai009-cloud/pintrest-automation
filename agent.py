@@ -189,14 +189,76 @@ async def fetch_aliexpress_products(niche: str, keyword: str = "") -> dict:
     return {"approved": 0, "fetched": 0, "error": "All fetch attempts failed."}
 
 
+async def _run_inline_blog(imgbb_url: str, cmo: dict, trigger: str) -> str:
+    """
+    Run the 4-node blog pipeline INLINE — before the Pinterest post.
+
+    Flow: node_blog_trigger → node_product_researcher → node_blog_writer
+          → node_firebase_publisher → returns blog_url or ""
+
+    Catches ALL exceptions so a blog failure never blocks the pin post.
+    """
+    import os
+    if not os.getenv("FIREBASE_CREDS_JSON"):
+        return ""
+
+    try:
+        from mastermind.node_blog_trigger import node_blog_trigger
+        from mastermind.node_product_researcher import node_product_researcher
+        from mastermind.node_blog_writer import node_blog_writer
+        from mastermind.node_firebase_publisher import node_firebase_publisher
+
+        acct = "account2" if "account2" in trigger else "account1"
+
+        state: dict = {
+            "last_posted_image_url": imgbb_url,
+            "cycle_trigger":         trigger,
+            "a1_cmo_strategy":       cmo if acct == "account1" else {},
+            "a2_cmo_strategy":       cmo if acct == "account2" else {},
+            "should_create_blog":    False,
+            "blog_products":         [],
+            "blog_content":          {},
+            "blog_url":              "",
+            "blog_published":        False,
+            # Required by state schema — unused in inline run
+            "a1_raw_analytics":  [], "a2_raw_analytics":  [],
+            "a1_final_seo_copy": {}, "a2_final_seo_copy": {},
+            "a1_publish_status": {}, "a2_publish_status": {},
+            "fallback_triggered": False,
+        }
+
+        state = await node_blog_trigger(state)
+        if not state.get("should_create_blog"):
+            logger.info("📝 [InlineBlog] Skipped — trigger check failed")
+            return ""
+
+        state = await node_product_researcher(state)
+        state = await node_blog_writer(state)
+        state = await node_firebase_publisher(state)
+
+        blog_url = state.get("blog_url", "")
+        if blog_url:
+            logger.info(f"📝 [InlineBlog] Published: {blog_url}")
+        return blog_url
+
+    except Exception as e:
+        logger.error(f"❌ [InlineBlog] Failed (pin will still post): {e}")
+        return ""
+
+
 @tool
 async def publish_next_pin(visual_style: str) -> dict:
     """
     Generate and publish a 100% VIRAL_PIN for the given visual style.
 
-    No product sourcing, no affiliate links — purely AI-generated aesthetic imagery.
-    CMO-generated title, description, tags, visual_prompt, and ratio are read from
-    the injected CURRENT_CMO_STRATEGY global.
+    Full pipeline (when Firebase configured):
+      1. AI image generation (Gemini → OpenRouter → Pollinations)
+      2. Vision AI product research from the generated image
+      3. Blog post written + published to Firebase → blog_url
+      4. Pinterest post via Make.com WITH blog_url as destination link
+
+    When Firebase is not configured, steps 2–3 are skipped and pin posts
+    with an empty destination link.
 
     Args:
         visual_style: one of green_minimalist | sunset_landscape | cozy_architecture | cinematic_retro
@@ -217,6 +279,7 @@ async def publish_next_pin(visual_style: str) -> dict:
     desc          = str(cmo.get("description", ""))
     tags          = list(cmo.get("tags", []))
     alt_text      = str(cmo.get("alt_text", ""))
+    niche         = cmo.get("niche", visual_style)
 
     if not visual_prompt:
         visual_prompt = (
@@ -229,25 +292,34 @@ async def publish_next_pin(visual_style: str) -> dict:
         f"prompt={visual_prompt[:60]}..."
     )
 
-    # ── 2. Generate AI image (OpenRouter -> Pollinations fallback) ────────────
+    # ── 2. Generate AI image ──────────────────────────────────────────────────
     imgbb_url = await generate_pin_image(visual_prompt=visual_prompt, ratio=ratio)
     if not imgbb_url:
         return {"success": False, "reason": "Image generation failed — all layers exhausted."}
 
-    # ── 3. Post to Pinterest via Make.com webhook — no affiliate link ─────────
-    # Extract niche from CMO strategy (if available, else default to visual_style as fallback)
-    niche = cmo.get("niche", visual_style)
-    
+    logger.info(f"🖼️ [{target_account}] Image ready: {imgbb_url[:60]}...")
+
+    # ── 3. Blog pipeline (Vision AI → Blog Write → Firebase) — BEFORE posting ─
+    trigger   = str(CURRENT_TRIGGER or "account1")
+    blog_url  = await _run_inline_blog(imgbb_url=imgbb_url, cmo=cmo, trigger=trigger)
+
+    if blog_url:
+        logger.info(f"📝 [{target_account}] Blog URL to pin: {blog_url}")
+    else:
+        logger.info(f"📝 [{target_account}] No blog — posting pin without destination link")
+
+    # ── 4. Post to Pinterest via Make.com webhook ─────────────────────────────
     try:
         success = await post_to_pinterest(
             image_url=imgbb_url,
             title=title,
             description=desc,
-            link="",          # No affiliate links — 100% visual strategy
+            link="",
             tags=tags,
             niche=niche,
             target_account=target_account,
             alt_text=alt_text,
+            blog_url=blog_url,      # ← blog URL as pin destination link
         )
     except Exception as e:
         return {"success": False, "reason": f"Webhook error: {e}"}
@@ -260,6 +332,7 @@ async def publish_next_pin(visual_style: str) -> dict:
             "visual_style":          visual_style,
             "pin_type":              "VIRAL_PIN",
             "image_url":             imgbb_url,
+            "blog_url":              blog_url,
             "last_posted_image_url": imgbb_url,
         }
 
