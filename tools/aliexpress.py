@@ -11,6 +11,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 
 # ── CONFIG ──
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
+RAPIDAPI_KEY2 = os.getenv("RAPIDAPI_KEY2")
 APIFY_API_KEY = os.getenv("APIFY_API_KEY")
 APIFY_ACTOR_ID = os.getenv("APIFY_ACTOR_ID")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -101,11 +102,11 @@ async def get_best_lifestyle_image(image_urls: list) -> str:
     except: return safe_images[0]
 
 # ── ENGINES ──
-async def fetch_rapidapi(keyword):
-    """RapidAPI Search"""
+async def _rapidapi_request(keyword: str, api_key: str, key_label: str):
+    """Single RapidAPI attempt with the given key. Returns products list or None."""
     headers = {
         "x-rapidapi-host": RAPIDAPI_HOST,
-        "x-rapidapi-key": RAPIDAPI_KEY,
+        "x-rapidapi-key": api_key,
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -118,23 +119,58 @@ async def fetch_rapidapi(keyword):
         async with httpx.AsyncClient(timeout=30, http2=True) as client:
             r = await client.get(SEARCH_URL, headers=headers, params={"keyword": keyword, "country": "us"})
             if r.status_code == 503:
-                logger.error(f"❌ RapidAPI 503 — possible Cloudflare block. Response body:\n{r.text[:2000]}")
+                logger.error(
+                    f"❌ RapidAPI 503 [{key_label}] — possible Cloudflare block. "
+                    f"Response body:\n{r.text[:2000]}"
+                )
                 return None
-            if r.status_code == 200:
-                data = r.json().get("data", [])
-                products = data.get("products", []) if isinstance(data, dict) else data
-                # Guard: only return if it's actually a list
-                return products if isinstance(products, list) else None
-    except: return None
+            if r.status_code != 200:
+                logger.warning(f"⚠️ RapidAPI [{key_label}] returned {r.status_code}: {r.text[:300]}")
+                return None
+            data = r.json().get("data", [])
+            products = data.get("products", []) if isinstance(data, dict) else data
+            return products if isinstance(products, list) else None
+    except Exception as e:
+        logger.warning(f"⚠️ RapidAPI [{key_label}] exception: {e}")
+        return None
+
+
+async def fetch_rapidapi(keyword):
+    """RapidAPI Search with automatic key rotation (KEY1 → KEY2 on any failure)."""
+    # ── Key 1 (primary) ───────────────────────────────────────────────────────
+    if RAPIDAPI_KEY:
+        result = await _rapidapi_request(keyword, RAPIDAPI_KEY, "KEY1")
+        if result is not None:
+            return result
+        logger.warning("🔄 RapidAPI KEY1 failed — rotating to KEY2...")
+    else:
+        logger.warning("⚠️ RAPIDAPI_KEY not set — skipping KEY1")
+
+    # ── Key 2 (fallback) ──────────────────────────────────────────────────────
+    if RAPIDAPI_KEY2:
+        result = await _rapidapi_request(keyword, RAPIDAPI_KEY2, "KEY2")
+        if result is not None:
+            logger.info("✅ RapidAPI KEY2 succeeded.")
+        return result
+
+    logger.error("❌ No RapidAPI keys available or both failed.")
+    return None
 
 async def get_rapidapi_gallery(asin):
-    """Gallery fetcher for RapidAPI"""
-    headers = {"x-rapidapi-host": RAPIDAPI_HOST, "x-rapidapi-key": RAPIDAPI_KEY}
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.get(DETAILS_URL, headers=headers, params={"asin": asin, "country": "us"})
-            return r.json().get("data", {}).get("images", [])
-    except: return []
+    """Gallery fetcher for RapidAPI with key rotation (KEY1 → KEY2)."""
+    for key, label in [(RAPIDAPI_KEY, "KEY1"), (RAPIDAPI_KEY2, "KEY2")]:
+        if not key:
+            continue
+        headers = {"x-rapidapi-host": RAPIDAPI_HOST, "x-rapidapi-key": key}
+        try:
+            async with httpx.AsyncClient(timeout=20, http2=True) as client:
+                r = await client.get(DETAILS_URL, headers=headers, params={"asin": asin, "country": "us"})
+                if r.status_code == 200:
+                    return r.json().get("data", {}).get("images", [])
+                logger.warning(f"⚠️ Gallery [{label}] returned {r.status_code} for ASIN {asin} — {'rotating key' if label == 'KEY1' else 'giving up'}")
+        except Exception as e:
+            logger.warning(f"⚠️ Gallery [{label}] exception for ASIN {asin}: {e}")
+    return []
 
 async def fetch_apify(keyword, max_results):
     """Apify Tank Engine (Deep Scrape)"""
