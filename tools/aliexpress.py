@@ -20,9 +20,11 @@ GROQ_MODEL = "llama-3.2-11b-vision-preview"
 GITHUB_MODEL = "Llama-3.2-11B-Vision-Instruct"
 
 # ── ENDPOINTS ──
-SEARCH_URL = "https://realtime-amazon-data.p.rapidapi.com/product-search"
-DETAILS_URL = "https://realtime-amazon-data.p.rapidapi.com/product-details"
-RAPIDAPI_HOST = "realtime-amazon-data.p.rapidapi.com"
+# SEARCH_URL aur HOST dono fix karo
+SEARCH_URL   = "https://real-time-amazon-data.p.rapidapi.com/product-search"
+DETAILS_URL  = "https://real-time-amazon-data.p.rapidapi.com/product-details"
+RAPIDAPI_HOST = "real-time-amazon-data.p.rapidapi.com"
+
 
 KEYWORDS_BY_NICHE = {
     "home": [
