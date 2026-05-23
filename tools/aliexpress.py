@@ -147,32 +147,26 @@ async def fetch_apify(keyword, max_results):
 # ── MAIN HYBRID FUNCTION ──
 async def search_products(keyword: str = "", niche: str = "", max_results: int = 5) -> list:
     raw_products = await fetch_rapidapi(keyword)
-    is_apify = False
 
     if not raw_products:
-        raw_products = await fetch_apify(keyword, max_results)
-        is_apify = True
-
-    if not raw_products: return []
+        logger.warning(f"⚠️ RapidAPI returned nothing for keyword: '{keyword}' — skipping.")
+        return []
 
     normalized = []
     for idx, item in enumerate(raw_products[:max_results]):
         # Quality Shield
         rating = float(str(item.get("rating", "0")).split()[0])
         reviews = int(''.join(filter(str.isdigit, str(item.get("ratingNumber", "0")))) or 0)
-        
+
         if rating < 3.5 or reviews < 50: continue
-        
+
         asin = item.get("asin")
         title = item.get("title", "Amazon Product")
         price = item.get("price", "$0.00")
 
-        # Image Extraction Logic
-        if is_apify:
-            gallery = item.get("images", []) # Apify gives all images in one call
-        else:
-            gallery = await get_rapidapi_gallery(asin)
-            await asyncio.sleep(2) # Detail calls delay
+        # Image via RapidAPI details endpoint only
+        gallery = await get_rapidapi_gallery(asin)
+        await asyncio.sleep(2)  # Detail calls delay
 
         best_img = await get_best_lifestyle_image(gallery) if gallery else item.get("thumbnail", "")
 
