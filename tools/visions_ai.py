@@ -48,6 +48,29 @@ except Exception as _e:
     logging.warning(f"⚠️ Google credentials init failed: {_e} — Vision Feeder will be disabled.")
 
 # ══════════════════════════════════════════════════════════════════════════════
+# IMAGE FILTER — mimeType + extension based (BUG FIX)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Drive kabhi kabhi images ko 'application/octet-stream' assign karta hai
+# isliye sirf mimeType pe depend nahi kar sakte — extension bhi check karo
+ALLOWED_MIME_TYPES = {
+    'image/jpeg', 'image/jpg', 'image/png', 'image/webp',
+    'image/gif', 'image/heic', 'image/heif', 'image/bmp',
+    'image/tiff', 'application/octet-stream'
+}
+IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.heif', '.bmp', '.tiff')
+
+def _is_image(file: dict) -> bool:
+    """Triple check: mimeType startswith image/ OR in allowed set OR extension match."""
+    mime = file.get('mimeType', '')
+    name = file.get('name', '').lower()
+    return (
+        mime.startswith('image/')
+        or mime in ALLOWED_MIME_TYPES
+        or name.endswith(IMAGE_EXTENSIONS)
+    )
+
+# ══════════════════════════════════════════════════════════════════════════════
 # CORE FUNCTIONS
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -244,13 +267,23 @@ def run_feeder_agent():
         return 0
 
     items = results.get('files', [])
-    images = [f for f in items if f['mimeType'].startswith('image/')]
+
+    # ── BUG FIX: mimeType + extension based filter ─────────────────────────
+    # Pehle sirf mimeType.startswith('image/') tha — Drive kabhi kabhi
+    # 'application/octet-stream' assign karta hai uploaded images ko,
+    # jis se wo silently drop ho jaate the aur count 0 dikhta tha.
+    for f in items:
+        logging.info(f"🔎 Drive file found: {f['name']} | mimeType: {f['mimeType']}")
+
+    images = [f for f in items if _is_image(f)]
+    # ──────────────────────────────────────────────────────────────────────────
 
     # Update queue count (total images in Drive, not capped)
     _vision_stats["queue_count"] = len(images)
     images = images[:remaining]
 
     if not images:
+        logging.info("💤 No images found in Input folder.")
         _vision_stats["status"] = "idle"
         return 0
 
