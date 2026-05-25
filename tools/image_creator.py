@@ -353,16 +353,25 @@ async def _t2i_huggingface(prompt: str, ratio: str) -> Optional[bytes]:
 # ── Model 3: Pollinations.ai (Last Resort) ─────────────────────────────────────
 
 async def _pollinations_once(prompt: str, ratio: str) -> Optional[bytes]:
-    w, h     = _get_dims(ratio)
-    enriched = _enrich_prompt(prompt, max_chars=500)
-    seed     = random.randint(1, 999_999)
-    encoded  = urllib.parse.quote(enriched)
-    url      = (
+    w, h = _get_dims(ratio)
+
+    # Pollinations quality tip: keep prompt under 300 chars — long prompts hurt quality here
+    # Strip quality tail (Pollinations ignores "4K ultra HD" etc), keep core visual only
+    core_prompt = prompt.replace(
+        ", 4K ultra HD, photorealistic, highly detailed, award-winning photography", ""
+    ).strip().rstrip(",").strip()
+    core_prompt = core_prompt[:300]  # Hard cap — Pollinations degrades beyond this
+
+    seed    = random.randint(1, 999_999)
+    encoded = urllib.parse.quote(core_prompt)
+
+    # flux-pro = noticeably better quality than flux on Pollinations (still free)
+    url = (
         f"{_POLLINATIONS_BASE}/{encoded}"
         f"?width={w}&height={h}&nologo=true&enhance=true"
-        f"&model={POLLINATIONS_MODEL}&quality=high&seed={seed}"
+        f"&model=flux-pro&quality=high&seed={seed}&safe=false"
     )
-    logger.info(f"🎨 [Pollinations] {w}x{h} | seed={seed} | ratio={ratio}")
+    logger.info(f"🎨 [Pollinations] {w}x{h} | seed={seed} | ratio={ratio} | model=flux-pro")
     img = await _download_bytes(url, timeout=_CALL_TIMEOUT)
     if img is None:
         raise RuntimeError("Pollinations download returned None.")
