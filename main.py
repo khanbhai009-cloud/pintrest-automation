@@ -17,14 +17,10 @@ from mastermind.graph import run_mastermind
 from sheets import get_all_products
 from tools.llm import chat
 from config import GEMINI_API_KEY, GEMINI_CHAT_MODEL
-from tools.telegram_feeder import (
+from tools.visions_ai import (
     run_feeder_agent, get_vision_stats,
     request_stop as vf_request_stop,
     request_start as vf_request_start,
-    telegram_receiver_loop,
-    telegram_feeder_loop,
-    handle_telegram_update,
-    register_webhook,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
@@ -211,13 +207,28 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(pin_watchdog())
     logger.info("✅ Smart Scheduler Active — 20 pins/day (10 per account) | India: 3:00 PM – 11:00 AM | EST: 1:30 AM – 11:30 PM | Gap: 20–30 min random")
 
-    # ── Telegram Feeder: webhook register + queue processor ──────────────────
-    _app_url = os.environ.get("APP_URL", "")
-    if _app_url:
-        register_webhook(_app_url)
-    asyncio.create_task(telegram_receiver_loop())
-    asyncio.create_task(telegram_feeder_loop())
-    logger.info("👁️ Telegram Vision Feeder started — bot ready, queue processing active.")
+    # ── Vision Feeder: Google Drive loop ─────────────────────────────────────
+    async def vision_feeder_loop():
+        logger.info("👁️ Vision Feeder Agent background task registered.")
+        logger.info("👁️ Vision Feeder Agent started in background...")
+        while True:
+            try:
+                result = await asyncio.to_thread(run_feeder_agent)
+                if result == -3:
+                    logger.info("👁️ Vision Feeder: daily limit reached — sleeping 24h.")
+                    await asyncio.sleep(86400)
+                elif result == -2:
+                    await asyncio.sleep(60)
+                elif result == 0:
+                    logger.info("👁️ Vision Feeder: Drive empty — sleeping 5 minutes...")
+                    await asyncio.sleep(300)
+                else:
+                    await asyncio.sleep(300)
+            except Exception as _e:
+                logger.error(f"❌ Vision Feeder loop error: {_e}")
+                await asyncio.sleep(300)
+
+    asyncio.create_task(vision_feeder_loop())
 
     yield
     scheduler.shutdown()
@@ -742,15 +753,6 @@ async def cmo_chat_endpoint(req: ChatMessage):
 
     return {"response": reply, "action": None}
     
-@app.post("/api/telegram-webhook")
-async def telegram_webhook(request: Request):
-    """Telegram webhook — images aur commands receive karta hai."""
-    try:
-        data = await request.json()
-        await handle_telegram_update(data)
-    except Exception as e:
-        logger.error(f"❌ Telegram webhook error: {e}")
-    return {"ok": True}
 
 @app.get("/api/ping")
 def ping():

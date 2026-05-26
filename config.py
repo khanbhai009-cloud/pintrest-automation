@@ -2,8 +2,6 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
 GROQ_API_KEY          = os.getenv("GROQ_API_KEY")
 CEREBRAS_API_KEY      = os.getenv("CEREBRAS_API_KEY")
 OPENROUTER_API_KEY    = os.getenv("OPENROUTER_API_KEY")
