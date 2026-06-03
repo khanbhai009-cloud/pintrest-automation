@@ -22,7 +22,7 @@ GITHUB_MODEL = "Llama-3.2-11B-Vision-Instruct"
 
 # ── ENDPOINTS ──
 # SEARCH_URL aur HOST dono fix karo
-SEARCH_URL   = "https://real-time-amazon-data.p.rapidapi.com/search"
+SEARCH_URL   = "https://real-time-amazon-data.p.rapidapi.com/search?query"
 DETAILS_URL  = "https://real-time-amazon-data.p.rapidapi.com/product-details"
 RAPIDAPI_HOST = "real-time-amazon-data.p.rapidapi.com"
 
