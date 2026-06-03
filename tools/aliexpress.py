@@ -197,35 +197,89 @@ async def fetch_apify(keyword, max_results):
 
 # ── MAIN HYBRID FUNCTION ──
 async def search_products(keyword: str = "", niche: str = "", max_results: int = 5) -> list:
+    # Try RapidAPI first (with key rotation inside)
     raw_products = await fetch_rapidapi(keyword)
+    normalized = []
 
-    if not raw_products:
-        logger.warning(f"⚠️ RapidAPI returned nothing for keyword: '{keyword}' — skipping.")
+    if raw_products:
+        logger.info("✅ Using RapidAPI results.")
+        for idx, item in enumerate(raw_products[:max_results]):
+            # Quality Shield
+            try:
+                rating = float(str(item.get("rating", "0")).split()[0])
+            except Exception:
+                rating = 0.0
+            try:
+                reviews = int(''.join(filter(str.isdigit, str(item.get("ratingNumber", "0")))) or 0)
+            except Exception:
+                reviews = 0
+
+            if rating < 3.5 or reviews < 50:
+                continue
+
+            asin = item.get("asin")
+            title = item.get("title", "Amazon Product")
+            price = item.get("price", "$0.00")
+
+            # Image via RapidAPI details endpoint only
+            gallery = await get_rapidapi_gallery(asin)
+            await asyncio.sleep(2)  # Detail calls delay
+
+            best_img = await get_best_lifestyle_image(gallery) if gallery else item.get("thumbnail", "")
+
+            normalized.append({
+                "product_id": asin, "product_name": title[:100], "sale_price": str(price),
+                "rating": rating, "image_url": best_img, "product_url": f"https://www.amazon.com/dp/{asin}"
+            })
+            await asyncio.sleep(5) # Vision call spacing
+
+        return normalized
+
+    # RapidAPI failed or returned nothing — try Apify fallback
+    logger.warning(f"⚠️ RapidAPI returned nothing for keyword: '{keyword}' — switching to Apify fallback.")
+    apify_data = await fetch_apify(keyword, max_results)
+    if not apify_data:
+        logger.error("❌ Apify also failed or returned no data.")
         return []
 
-    normalized = []
-    for idx, item in enumerate(raw_products[:max_results]):
-        # Quality Shield
-        rating = float(str(item.get("rating", "0")).split()[0])
-        reviews = int(''.join(filter(str.isdigit, str(item.get("ratingNumber", "0")))) or 0)
+    logger.info("🛡️ Using Apify results.")
+    for item in apify_data[:max_results]:
+        # Flexible extraction from Apify actor output
+        try:
+            rating = float(item.get("rating") or item.get("stars") or 0)
+        except Exception:
+            rating = 0.0
+        try:
+            reviews = int(item.get("reviews") or item.get("reviewCount") or 0)
+        except Exception:
+            reviews = 0
 
-        if rating < 3.5 or reviews < 50: continue
+        if rating < 3.5 or reviews < 50:
+            continue
 
-        asin = item.get("asin")
-        title = item.get("title", "Amazon Product")
-        price = item.get("price", "$0.00")
+        asin = item.get("asin") or item.get("productId") or item.get("id")
+        title = item.get("title") or item.get("name") or item.get("productTitle") or "Amazon Product"
+        price = item.get("price") or item.get("salePrice") or item.get("priceText") or "$0.00"
 
-        # Image via RapidAPI details endpoint only
-        gallery = await get_rapidapi_gallery(asin)
-        await asyncio.sleep(2)  # Detail calls delay
+        # Images: prefer lists, fall back to single url fields
+        images = item.get("images") or item.get("imageUrls") or item.get("image") or item.get("thumbnail") or []
+        if isinstance(images, str):
+            images = [images]
 
-        best_img = await get_best_lifestyle_image(gallery) if gallery else item.get("thumbnail", "")
+        best_img = ""
+        if images:
+            try:
+                best_img = await get_best_lifestyle_image(images)
+            except Exception:
+                best_img = images[0] if images else ""
+
+        product_url = item.get("url") or item.get("link") or (f"https://www.amazon.com/dp/{asin}" if asin else "")
 
         normalized.append({
             "product_id": asin, "product_name": title[:100], "sale_price": str(price),
-            "rating": rating, "image_url": best_img, "product_url": f"https://www.amazon.com/dp/{asin}"
+            "rating": rating, "image_url": best_img, "product_url": product_url
         })
-        await asyncio.sleep(5) # Vision call spacing
+        await asyncio.sleep(2)
 
     return normalized
 
