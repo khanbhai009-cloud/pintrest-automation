@@ -47,6 +47,7 @@ from config import CEREBRAS_API_KEY, CEREBRAS_CMO_MODEL, GEMINI_API_KEY, GEMINI_
 from mastermind.state import MastermindState
 from sheets import (get_prompts_master, load_style_tracker, save_style_tracker,
                     load_prompt_tracker, save_prompt_tracker)
+from tools.firebase_boards import format_boards_for_prompt, format_trends_for_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -855,7 +856,8 @@ HARDCODED_FALLBACK: dict = {
 # PROMPT BUILDER — Forces specific style (rotation engine controls which one)
 # ══════════════════════════════════════════════════════════════════════════════
 def _build_forced_style_prompt(profile: str, forced_style_key: str, ratio: str, t2i_prompt: str = None,
-                               sheet_row: dict = None) -> str:
+                               sheet_row: dict = None, boards_formatted: str = None,
+                               trends_formatted: str = None) -> str:
     """
     Build the LLM prompt for a specific style.
 
@@ -905,6 +907,37 @@ def _build_forced_style_prompt(profile: str, forced_style_key: str, ratio: str, 
 
 
 
+    # ── Board selection section (injected when Firebase boards available) ───────
+    board_section = ""
+    if boards_formatted and "No boards configured" not in boards_formatted:
+        board_section = f"""
+
+━━━ BOARD SELECTION (CRITICAL) ━━━
+AVAILABLE BOARDS:
+{boards_formatted}
+
+ACTIVE TREND KEYWORDS THIS WEEK:
+{trends_formatted or "No active trend keywords — use board niche_keywords."}
+
+BOARD SELECTION RULES:
+1. Analyze the visual you just designed — what is its PRIMARY subject?
+2. Match to board keywords + description strictly.
+3. STRICT matching — never mix niches (garden pin to bedroom board = WRONG).
+4. Tie-breaker: lower priority number wins.
+
+TREND INJECTION:
+- If selected board's niche_key has active trends above: weave 1-2 keywords naturally into visual_prompt.
+- Set primary_keyword = single most relevant trend keyword from selected board's active trends.
+- If no active trends: primary_keyword = first niche_keyword from selected board.
+
+ADD THESE FIELDS TO YOUR JSON OUTPUT:
+  "selected_board_id": "<exact board_id from AVAILABLE BOARDS above>",
+  "selected_board_niche": "<niche_key of selected board>",
+  "selected_board_name": "<board display name>",
+  "primary_keyword": "<most relevant keyword for Pinterest SEO>",
+  "active_keywords": ["<kw1>", "<kw2>", "<kw3>"],
+  "board_selection_reason": "<one line why this board was chosen>","""
+
     return f"""TASK: Generate ONE VIRAL_PIN for the EXACT visual style specified below. Do NOT change the style.
 
 ACCOUNT PROFILE
@@ -944,7 +977,7 @@ CREATIVE DIRECTION
    Base tags to use/remix: {json.dumps(tags)}
 
 5. ALT TEXT: Highly descriptive SEO-optimized text describing the image visually. Max 200 chars.
-
+{board_section}
 OUTPUT FORMAT (JSON only — no other text before or after)
 {{
   "pin_type": "VIRAL_PIN",
@@ -1112,7 +1145,8 @@ def _call_cerebras_sync(prompt: str) -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN ORCHESTRATION — Sequential rotation per account
 # ══════════════════════════════════════════════════════════════════════════════
-def _call_cmo_for_account(account_key: str, metrics: dict) -> dict:
+def _call_cmo_for_account(account_key: str, metrics: dict,
+                          boards: dict = None, trends: dict = None) -> dict:
     """
     Gets the NEXT style in rotation, calls LLM for copy + prompt expansion.
 
@@ -1166,10 +1200,32 @@ def _call_cmo_for_account(account_key: str, metrics: dict) -> dict:
     logger.info(f"   [{account_key}] Generating: {forced_style} | niche={niche} | ratio={ratio} | sheet_row={'YES' if sheet_row else 'NO (using hardcoded)'}")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # STEP 2: Build LLM prompt — feeds full sheet_row content to LLM
+    # STEP 2: Build LLM prompt — feeds full sheet_row content + boards/trends to LLM
     # LLM task: write viral copy (title, description, alt_text) + expand visual_prompt
+    #           + select Pinterest board (if Firebase boards available)
     # ══════════════════════════════════════════════════════════════════════════
-    prompt = _build_forced_style_prompt(profile, forced_style, ratio, sheet_prompt, sheet_row=sheet_row)
+    boards_fmt = format_boards_for_prompt(boards or {})
+    trends_fmt = format_trends_for_prompt(trends or {})
+    prompt = _build_forced_style_prompt(
+        profile, forced_style, ratio, sheet_prompt,
+        sheet_row=sheet_row,
+        boards_formatted=boards_fmt,
+        trends_formatted=trends_fmt,
+    )
+
+    def _attach_board_fields(result: dict) -> dict:
+        """Log board selection from CMO and attach standard fields."""
+        board_id = result.get("selected_board_id", "")
+        if board_id:
+            logger.info(
+                f"   [{account_key}] Board selected: [{result.get('selected_board_niche','?')}] "
+                f"{result.get('selected_board_name','?')} | id={board_id} | "
+                f"kw={result.get('primary_keyword','?')} | "
+                f"reason={result.get('board_selection_reason','')}"
+            )
+        else:
+            logger.info(f"   [{account_key}] No board selected by CMO — niche fallback will be used.")
+        return result
 
     # ── PRIMARY: Gemini ───────────────────────────────────────────────────────
     try:
@@ -1181,6 +1237,7 @@ def _call_cmo_for_account(account_key: str, metrics: dict) -> dict:
         result["visual_style"] = forced_style
         result["ratio"]        = result.get("ratio", ratio)
         result["niche"]        = niche
+        _attach_board_fields(result)
         logger.info(f"   [{account_key}] Gemini OK | style={forced_style} | niche={niche}")
         return result
     except Exception as gemini_err:
@@ -1199,6 +1256,7 @@ def _call_cmo_for_account(account_key: str, metrics: dict) -> dict:
         result["visual_style"] = forced_style
         result["ratio"]        = result.get("ratio", ratio)
         result["niche"]        = niche
+        _attach_board_fields(result)
         logger.info(f"   [{account_key}] Cerebras OK | style={forced_style} | niche={niche}")
         return result
     except RuntimeError as rate_err:
@@ -1250,12 +1308,23 @@ async def node_cmo_mastermind(state: MastermindState) -> dict:
 
     a1_metrics = state.get("a1_raw_analytics", [])
     a2_metrics = state.get("a2_raw_analytics", [])
+    a1_boards  = state.get("a1_boards", {}) or {}
+    a2_boards  = state.get("a2_boards", {}) or {}
+    a1_trends  = state.get("a1_trend_keywords", {}) or {}
+    a2_trends  = state.get("a2_trend_keywords", {}) or {}
     fallback   = False
+
+    if a1_boards:
+        logger.info(f"[Node 2 - CMO] A1 Firebase boards: {list(a1_boards.keys())}")
+    if a2_boards:
+        logger.info(f"[Node 2 - CMO] A2 Firebase boards: {list(a2_boards.keys())}")
 
     # ── Account 1 (HomeDecor)
     if run_a1:
         try:
-            a1_strategy = await asyncio.to_thread(_call_cmo_for_account, "account_1", a1_metrics)
+            a1_strategy = await asyncio.to_thread(
+                _call_cmo_for_account, "account_1", a1_metrics, a1_boards, a1_trends
+            )
             strategy_src = "VISUAL_STYLES-direct" if "VISUAL_STYLES Direct" in a1_strategy.get("strategy", "") else "LLM"
             logger.info(
                 f"[Node 2] A1 OK ({strategy_src}) | "
@@ -1281,7 +1350,9 @@ async def node_cmo_mastermind(state: MastermindState) -> dict:
     # ── Account 2 (Tech / WFH)
     if run_a2:
         try:
-            a2_strategy = await asyncio.to_thread(_call_cmo_for_account, "account_2", a2_metrics)
+            a2_strategy = await asyncio.to_thread(
+                _call_cmo_for_account, "account_2", a2_metrics, a2_boards, a2_trends
+            )
             strategy_src = "VISUAL_STYLES-direct" if "VISUAL_STYLES Direct" in a2_strategy.get("strategy", "") else "LLM"
             logger.info(
                 f"[Node 2] A2 OK ({strategy_src}) | "

@@ -18,6 +18,7 @@ import logging
 
 from langgraph.graph import END, StateGraph
 
+from mastermind.node_firebase import node_firebase_loader
 from mastermind.node_cmo import node_cmo_mastermind
 from mastermind.node_data import node_data_intelligence
 from mastermind.state import MastermindState
@@ -94,14 +95,16 @@ async def node_agent_executor(state: MastermindState) -> dict:
 # ── Graph Builder ─────────────────────────────────────────────────────────────
 
 def build_mastermind_graph():
-    """Compile and return the Mastermind CEO LangGraph (3-node pipeline)."""
+    """Compile and return the Mastermind CEO LangGraph (4-node pipeline)."""
     g = StateGraph(MastermindState)
 
+    g.add_node("firebase_loader",   node_firebase_loader)
     g.add_node("data_intelligence", node_data_intelligence)
     g.add_node("cmo_mastermind",    node_cmo_mastermind)
     g.add_node("agent_executor",    node_agent_executor)
 
-    g.set_entry_point("data_intelligence")
+    g.set_entry_point("firebase_loader")
+    g.add_edge("firebase_loader",   "data_intelligence")
     g.add_edge("data_intelligence", "cmo_mastermind")
     g.add_edge("cmo_mastermind",    "agent_executor")
     g.add_edge("agent_executor",    END)
@@ -144,6 +147,11 @@ async def run_mastermind(trigger: str = "scheduled", force_blog: bool = False) -
         "blog_url":              "",
         "blog_published":        False,
         "force_blog":            force_blog,
+        # V5 Firebase board routing — populated by node_firebase_loader
+        "a1_boards":         {},
+        "a2_boards":         {},
+        "a1_trend_keywords": {},
+        "a2_trend_keywords": {},
     }
 
     try:

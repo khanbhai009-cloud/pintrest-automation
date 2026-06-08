@@ -5,6 +5,7 @@ Zero cross-contamination by design — each account has its own analytics,
 CMO strategy, SEO copy, and publish status fields.
 
 V4 additions: blog pipeline fields (should_create_blog → blog_published)
+V5 additions: Firebase board routing fields per account
 """
 from typing import Any, Dict, List, Optional
 from typing_extensions import TypedDict
@@ -35,3 +36,9 @@ class MastermindState(TypedDict):
     blog_url:              Optional[str]   # node_firebase_publisher result
     blog_published:        Optional[bool]  # True if Firebase save succeeded
     force_blog:            Optional[bool]  # bypass daily blog limit when True
+
+    # ── V5 Firebase Board Routing (loaded by node_firebase_loader) ────────
+    a1_boards:         Optional[Dict[str, Any]]  # {niche_key: board_data} for account_1
+    a2_boards:         Optional[Dict[str, Any]]  # {niche_key: board_data} for account_2
+    a1_trend_keywords: Optional[Dict[str, Any]]  # {niche_key: [kw1, kw2]} active trends a1
+    a2_trend_keywords: Optional[Dict[str, Any]]  # {niche_key: [kw1, kw2]} active trends a2

@@ -14,6 +14,7 @@ async def post_to_pinterest(
     target_account: str = None,
     alt_text: str = "",
     blog_url: str = "",
+    board_id: str = "",    # Firebase dynamic board_id — overrides niche-based lookup
 ) -> bool:
 
     # Strictly target account find karo
@@ -22,7 +23,9 @@ async def post_to_pinterest(
     else:
         account = next((a for a in PINTEREST_ACCOUNTS if a["niche"] == niche), PINTEREST_ACCOUNTS[0])
 
-    board_id = account["boards"].get(niche, account["boards"]["default"])
+    # Firebase dynamic board_id overrides niche-based static config
+    if not board_id:
+        board_id = account["boards"].get(niche, account["boards"]["default"])
 
     hashtags = " ".join([f"#{t.strip()}" for t in tags])
     caption  = f"{description}\n\n{hashtags}"

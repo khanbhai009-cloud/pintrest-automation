@@ -1,0 +1,426 @@
+# 🚀 Pinterest AI Pipeline — System Prompts Upgrade
+# Firebase Board Routing + Trend Keyword Engine
+
+---
+
+## 📁 Step 1: New File — `tools/firebase_boards.py`
+
+Create this file in your project. Yeh CMO + SEO dono nodes use karenge.
+
+```python
+import os
+import time
+import requests
+
+FIREBASE_URL = os.getenv("FIREBASE_URL")       # https://your-project-default-rtdb.firebaseio.com
+FIREBASE_SECRET = os.getenv("FIREBASE_SECRET") # Optional: Database secret for auth
+
+def _fb_get(path: str):
+    url = f"{FIREBASE_URL}/{path}.json"
+    if FIREBASE_SECRET:
+        url += f"?auth={FIREBASE_SECRET}"
+    try:
+        r = requests.get(url, timeout=5)
+        return r.json() if r.ok else None
+    except Exception as e:
+        print(f"[Firebase] GET error {path}: {e}")
+        return None
+
+def get_boards(account: str) -> dict:
+    """Get all active boards for account, sorted by priority"""
+    data = _fb_get(f"boards/{account}")
+    if not data:
+        return {}
+    active = {k: v for k, v in data.items() if v.get("active", True)}
+    return dict(sorted(active.items(), key=lambda x: x[1].get("priority", 99)))
+
+def get_active_trends(account: str, niche_key: str) -> list:
+    """Get active trend keywords for a niche — returns [] if expired"""
+    data = _fb_get(f"trends/{account}/{niche_key}")
+    if not data:
+        return []
+    if data.get("expires_at", 0) < time.time() * 1000:  # expires_at stored in ms
+        return []
+    return data.get("keywords", [])
+
+def get_all_active_trends(account: str) -> dict:
+    """Get all active trend keyword sets for account — {niche_key: [kw1, kw2]}"""
+    data = _fb_get(f"trends/{account}")
+    if not data:
+        return {}
+    now = time.time() * 1000
+    return {
+        niche_key: trend["keywords"]
+        for niche_key, trend in data.items()
+        if trend.get("expires_at", 0) > now and trend.get("keywords")
+    }
+
+def format_boards_for_prompt(boards: dict) -> str:
+    """Format boards dict into readable string for AI prompt"""
+    if not boards:
+        return "No boards configured."
+    lines = []
+    for niche_key, board in boards.items():
+        kws = ", ".join(board.get("niche_keywords", []))
+        lines.append(
+            f"- [{niche_key}] \"{board.get('board_name', niche_key)}\"\n"
+            f"  Board ID: {board.get('board_id', 'MISSING')}\n"
+            f"  Description: {board.get('description', 'N/A')}\n"
+            f"  Match keywords: {kws}\n"
+            f"  Priority: {board.get('priority', 99)}"
+        )
+    return "\n\n".join(lines)
+
+def format_trends_for_prompt(trends: dict) -> str:
+    """Format active trends into readable string for AI prompt"""
+    if not trends:
+        return "No active trend keywords this week."
+    lines = []
+    for niche_key, keywords in trends.items():
+        lines.append(f"- {niche_key}: {', '.join(keywords[:10])}")
+    return "\n".join(lines)
+```
+
+---
+
+## 📁 Step 2: Update `MastermindState` in `graph.py`
+
+```python
+from typing import TypedDict, List, Dict, Any
+
+class MastermindState(TypedDict):
+    # --- Existing fields ---
+    account: str
+    analytics_data: dict
+    style_config: dict
+    visual_prompt: str
+    niche_affinity: str
+    
+    # --- NEW: Firebase fields ---
+    boards: dict              # All boards from Firebase for current account
+    trend_keywords: dict      # {niche_key: [kw1, kw2, ...]} — active only
+    selected_board_id: str    # Pinterest board ID selected by CMO
+    selected_board_niche: str # niche_key of selected board
+    selected_board_name: str  # Display name of selected board
+    active_keywords: list     # Active trend keywords for selected niche
+    primary_keyword: str      # Top keyword for title (first 40 chars)
+    
+    # --- Existing output fields ---
+    pin_title: str
+    pin_description: str
+    pin_hashtags: list
+    image_url: str
+```
+
+---
+
+## 📁 Step 3: New Node — `node_firebase_loader` in `nodes/node_firebase.py`
+
+Yeh node graph mein CMO se PEHLE run hoga.
+
+```python
+from tools.firebase_boards import get_boards, get_all_active_trends
+
+def node_firebase_loader(state: MastermindState) -> dict:
+    """
+    Load boards and active trend keywords from Firebase.
+    Runs BEFORE CMO node.
+    """
+    account = state.get("account", "account_1")
+    
+    print(f"[Firebase] Loading boards for {account}...")
+    boards = get_boards(account)
+    trends = get_all_active_trends(account)
+    
+    print(f"[Firebase] Loaded {len(boards)} boards, {len(trends)} active trend sets")
+    
+    return {
+        "boards": boards,
+        "trend_keywords": trends,
+    }
+```
+
+---
+
+## 📁 Step 4: Update `node_cmo.py` — Board Selection Prompt
+
+Add this function inside `node_cmo.py`:
+
+```python
+from tools.firebase_boards import format_boards_for_prompt, format_trends_for_prompt
+
+# ─── UPDATED CMO SYSTEM PROMPT ───
+CMO_SYSTEM_PROMPT = """
+You are the Chief Marketing Officer AI for a Pinterest automation system.
+Your job has TWO parts: (1) plan the visual, (2) select the correct board.
+
+━━━ PART 1: VISUAL PLANNING (existing job) ━━━
+Decide the visual style, mood, color palette, and composition for the next pin.
+Output a detailed T2I (text-to-image) prompt and niche_affinity tags.
+
+━━━ PART 2: BOARD SELECTION (NEW) ━━━
+
+Available boards for {account}:
+{boards_formatted}
+
+Active trend keywords this week:
+{trends_formatted}
+
+BOARD SELECTION RULES:
+1. Read the pin's niche_affinity tags and visual_prompt you just created
+2. Match against each board's "Match keywords" and "Description"
+3. Select the board with HIGHEST semantic similarity to pin content
+4. STRICT RULES:
+   - Bedroom pin → bedroom_aesthetic board ONLY
+   - Garden/cottage/floral outdoor → cottage_garden board ONLY
+   - Reading nook/living room → cozy_living board ONLY
+   - Balcony/porch/outdoor seating → balcony_outdoor board ONLY
+   - Desk/study/workspace → study_desk or cozy_wfh board ONLY
+   - Kawaii/pink gaming → kawaii_gaming board ONLY
+   - Pastel gaming room → pastel_gaming board ONLY
+   - Ghibli/anime desk → anime_desk board ONLY
+   - NEVER mix garden pins into bedroom boards
+   - NEVER mix gaming into home decor boards
+5. If multiple boards match, use Priority number (lower = higher priority)
+
+TREND KEYWORD INJECTION:
+- Check if selected board's niche_key has active trend keywords
+- If yes: incorporate 1-2 trend keywords naturally into your T2I prompt
+- Set primary_keyword = the single most relevant trend keyword for this pin
+- If no active trends: primary_keyword = most relevant board keyword
+
+OUTPUT (JSON):
+{
+  "visual_prompt": "detailed flux/SD prompt...",
+  "niche_affinity": "bedroom, cozy, fairy lights",
+  "style_label": "Enchanted Lavender Bedroom",
+  "selected_board_id": "actual_board_id_from_firebase",
+  "selected_board_niche": "bedroom_aesthetic",
+  "selected_board_name": "Aesthetic Bedroom Ideas 2025",
+  "primary_keyword": "cozy bedroom ideas 2025",
+  "active_keywords": ["cozy bedroom ideas 2025", "aesthetic room decor", "dreamy bedroom"],
+  "board_selection_reason": "Pin shows a dreamy pastel bedroom scene — matches bedroom_aesthetic board's description and keywords"
+}
+"""
+
+def build_cmo_prompt(state: MastermindState) -> str:
+    boards = state.get("boards", {})
+    trends = state.get("trend_keywords", {})
+    account = state.get("account", "account_1")
+    
+    return CMO_SYSTEM_PROMPT.format(
+        account=account,
+        boards_formatted=format_boards_for_prompt(boards),
+        trends_formatted=format_trends_for_prompt(trends),
+    )
+```
+
+---
+
+## 📁 Step 5: Update `node_seo.py` — Trend-Keyword-Driven Copy
+
+Replace your existing SEO prompt with this:
+
+```python
+# ─── UPDATED SEO SYSTEM PROMPT ───
+SEO_SYSTEM_PROMPT = """
+You are a Pinterest SEO specialist. Your job: write pin copy that ranks and saves.
+
+━━━ CONTEXT ━━━
+Board: {board_name} ({board_niche})
+Pin visual: {visual_summary}
+Primary keyword: {primary_keyword}
+Active trend keywords: {active_keywords_str}
+
+━━━ TITLE RULES (MOST CRITICAL) ━━━
+Pinterest indexes first 40 characters most heavily.
+
+FORMULA: [Primary Keyword] — [Hook/Benefit/Number]
+GOOD: "Cozy Bedroom Ideas 2025 — 12 Dreamy Looks"
+GOOD: "Cottagecore Garden Goals That Will Transform Your Space"  
+GOOD: "Kawaii Gaming Setup — Pink Aesthetic Desk Ideas"
+BAD:  "Beautiful Room Decoration" (no keyword, no hook)
+BAD:  "Amazing Home Decor Ideas You'll Love" (too generic)
+
+Rules:
+- Characters 1-40 MUST contain primary_keyword (exact or close variation)
+- Total length: 60-100 characters
+- Include a number OR power word (Dreamy, Cozy, Ultimate, Perfect, Stunning)
+- Never use clickbait — Pinterest audience saves real inspiration
+
+━━━ DESCRIPTION RULES ━━━
+- Length: 150-250 words
+- Sentence 1: Must contain primary_keyword naturally
+- Weave in 3-4 trend keywords throughout (never stuffed back-to-back)
+- Include 1 question mid-description (boosts engagement)
+- Soft CTA at end: "Save this for later 📌" or "Try this look →"
+- Write as a knowledgeable friend, not a salesperson
+- No hashtags inside description
+
+━━━ HASHTAG RULES ━━━
+Generate exactly 15 hashtags:
+- 3 mega (10M+ posts): e.g. #HomeDecor #BedroomIdeas #InteriorDesign
+- 5 macro (1-10M posts): e.g. #CozyBedroom #AestheticRoom #BedroomInspo
+- 4 micro (100K-1M posts): e.g. #DreamyBedroom2025 #CozyHomeAesthetic
+- 3 niche: convert trend keywords to hashtags (remove spaces, title case)
+
+Always include #{primary_keyword_as_hashtag} in micro or niche group.
+
+━━━ ALT TEXT ━━━
+One sentence, descriptive, includes primary_keyword naturally.
+For Pinterest SEO, this matters. Write like you're describing to someone who can't see.
+
+━━━ OUTPUT FORMAT ━━━
+Return JSON only:
+{{
+  "title": "...",
+  "description": "...",
+  "hashtags": ["#tag1", "#tag2", ...],
+  "alt_text": "..."
+}}
+"""
+
+def build_seo_prompt(state: MastermindState) -> str:
+    keywords = state.get("active_keywords", [])
+    primary = state.get("primary_keyword", "")
+    
+    # Fallback: use board keywords if no trends
+    if not primary and state.get("boards"):
+        board_niche = state.get("selected_board_niche", "")
+        board = state["boards"].get(board_niche, {})
+        board_kws = board.get("niche_keywords", [])
+        primary = board_kws[0] if board_kws else "home decor ideas"
+        keywords = board_kws[:5]
+    
+    return SEO_SYSTEM_PROMPT.format(
+        board_name=state.get("selected_board_name", "Home Decor"),
+        board_niche=state.get("selected_board_niche", "home_decor"),
+        visual_summary=state.get("visual_prompt", "")[:200],
+        primary_keyword=primary,
+        active_keywords_str=", ".join(keywords) if keywords else "none this week",
+        primary_keyword_as_hashtag="".join(w.capitalize() for w in primary.split()) if primary else "HomeDecor",
+    )
+```
+
+---
+
+## 📁 Step 6: Update `graph.py` — Add Firebase Node to Graph
+
+```python
+from langgraph.graph import StateGraph, END
+from nodes.node_firebase import node_firebase_loader
+from nodes.node_cmo import node_cmo
+from nodes.node_seo import node_seo
+from nodes.node_execute import node_execute
+
+def build_graph():
+    g = StateGraph(MastermindState)
+    
+    # Add nodes
+    g.add_node("firebase_loader", node_firebase_loader)  # NEW — first node
+    g.add_node("cmo", node_cmo)
+    g.add_node("seo", node_seo)
+    g.add_node("execute", node_execute)
+    
+    # Edges — firebase_loader runs BEFORE cmo
+    g.set_entry_point("firebase_loader")
+    g.add_edge("firebase_loader", "cmo")
+    g.add_edge("cmo", "seo")
+    g.add_edge("seo", "execute")
+    g.add_edge("execute", END)
+    
+    return g.compile()
+```
+
+---
+
+## 📁 Step 7: Update `node_execute.py` — Pass board_id to Make.com
+
+In your execute node, replace hardcoded board with dynamic one:
+
+```python
+def node_execute(state: MastermindState) -> dict:
+    # Get dynamic board ID from CMO selection
+    board_id = state.get("selected_board_id", "")
+    
+    if not board_id:
+        print("[Execute] WARNING: No board_id selected, using fallback")
+        # Fallback to first active board
+        boards = state.get("boards", {})
+        if boards:
+            board_id = list(boards.values())[0].get("board_id", "")
+    
+    # Build Make.com webhook payload
+    payload = {
+        "image_url": state.get("image_url"),
+        "title": state.get("pin_title"),
+        "description": state.get("pin_description"),
+        "hashtags": " ".join(state.get("pin_hashtags", [])),
+        "alt_text": state.get("alt_text", ""),
+        "board_id": board_id,                          # ← Dynamic now!
+        "board_name": state.get("selected_board_name"),
+        "account": state.get("account"),
+    }
+    
+    # ... rest of your Make.com webhook call
+```
+
+---
+
+## 📦 `.env` Updates
+
+```env
+# Firebase
+FIREBASE_URL=https://your-project-default-rtdb.firebaseio.com
+FIREBASE_SECRET=your_database_secret_or_leave_empty_if_public_rules
+
+# Existing vars...
+GROQ_API_KEY=...
+GEMINI_API_KEY=...
+```
+
+---
+
+## ✅ Testing Checklist
+
+```
+[ ] Firebase URL set in .env
+[ ] Boards added in Plinth Control app (with board IDs)
+[ ] Trend keywords added for at least 1 niche
+[ ] node_firebase_loader runs successfully (check logs)
+[ ] CMO output contains selected_board_id
+[ ] SEO output title contains primary_keyword in first 40 chars
+[ ] Make.com webhook receives correct board_id
+[ ] Pin posted to correct board ✅
+```
+
+---
+
+## 📊 Expected Flow
+
+```
+graph.py runs
+  → node_firebase_loader
+      → Firebase fetch: boards (account_1 or account_2)
+      → Firebase fetch: active trends
+      → state: {boards, trend_keywords}
+  
+  → node_cmo
+      → Receives boards + trends in prompt
+      → Creates visual prompt
+      → Selects best matching board
+      → Sets primary_keyword from active trends
+      → state: {visual_prompt, selected_board_id, selected_board_niche, primary_keyword, active_keywords}
+  
+  → node_seo
+      → Receives primary_keyword + active_keywords
+      → Title: keyword in first 40 chars
+      → Description: 3-4 keywords woven in
+      → 15 hashtags with proper distribution
+      → state: {pin_title, pin_description, pin_hashtags}
+  
+  → node_execute
+      → Image generated
+      → Make.com webhook → board_id (dynamic) → Pinterest
+      → Pin posted to CORRECT board ✅
+```

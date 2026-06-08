@@ -52,9 +52,15 @@ async def _execute_for_account(account_key: str, cmo_strategy: dict) -> dict:
     logger.info(f"[{account_name}] Image ready: {imgbb_url[:60]}...")
 
     # ── Post to Pinterest (no affiliate link) ──────────────────────────────────
-    # Extract niche from CMO strategy (if available, else fall back to account's default niche)
-    niche = cmo_strategy.get("niche", cfg["default_niche"])
-    
+    niche      = cmo_strategy.get("niche", cfg["default_niche"])
+    board_id   = cmo_strategy.get("selected_board_id", "")   # Firebase dynamic board
+    alt_text   = cmo_strategy.get("alt_text", "")
+
+    if board_id:
+        logger.info(f"[{account_name}] Dynamic board_id from Firebase: {board_id}")
+    else:
+        logger.info(f"[{account_name}] No Firebase board_id — using niche-based routing (niche={niche})")
+
     try:
         success = await post_to_pinterest(
             image_url=imgbb_url,
@@ -64,6 +70,8 @@ async def _execute_for_account(account_key: str, cmo_strategy: dict) -> dict:
             tags=tags,
             niche=niche,
             target_account=account_name,
+            alt_text=alt_text,
+            board_id=board_id,   # Dynamic override — empty = niche fallback
         )
     except Exception as e:
         return {"success": False, "message": str(e), "account": account_name}
