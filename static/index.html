@@ -1084,6 +1084,72 @@ header {
         </div>
       </div>
 
+      <!-- ── FIREBASE BOARDS UPLOAD ───────────────────────────────── -->
+      <div class="blog-section" style="margin-bottom:1.5rem">
+        <div class="card" style="border-color:rgba(251,146,60,0.25)">
+          <div class="card-head" style="background:rgba(251,146,60,0.04)">
+            <div class="card-title" style="color:#fb923c">
+              <span style="width:22px;height:22px;background:linear-gradient(135deg,#ea580c,#fb923c);border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 0 12px rgba(251,146,60,0.3)">🔥</span>
+              Firebase Boards Upload
+            </div>
+            <div id="fb-status-badge" class="badge" style="background:rgba(251,146,60,0.1);color:#fb923c;border:1px solid rgba(251,146,60,0.3)">READY</div>
+          </div>
+          <div class="card-body">
+
+            <!-- Boards status row -->
+            <div id="fb-boards-status" style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:1rem">
+              <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.15);border-radius:10px;padding:0.75rem;text-align:center">
+                <div style="font-size:0.65rem;color:var(--text3);font-family:var(--mono);margin-bottom:0.3rem">🏠 ACCOUNT 1 BOARDS</div>
+                <div style="font-size:1.5rem;font-weight:700;color:var(--blue)" id="fb-a1-count">—</div>
+                <div style="font-size:0.6rem;color:var(--text3);font-family:var(--mono)" id="fb-a1-names">loading...</div>
+              </div>
+              <div style="background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.15);border-radius:10px;padding:0.75rem;text-align:center">
+                <div style="font-size:0.65rem;color:var(--text3);font-family:var(--mono);margin-bottom:0.3rem">💻 ACCOUNT 2 BOARDS</div>
+                <div style="font-size:1.5rem;font-weight:700;color:var(--accent2)" id="fb-a2-count">—</div>
+                <div style="font-size:0.6rem;color:var(--text3);font-family:var(--mono)" id="fb-a2-names">loading...</div>
+              </div>
+            </div>
+
+            <!-- Info box -->
+            <div style="background:rgba(251,146,60,0.06);border:1px solid rgba(251,146,60,0.15);border-radius:10px;padding:0.8rem 1rem;margin-bottom:1rem;font-family:var(--mono);font-size:0.68rem;color:var(--text2);line-height:1.7">
+              Claude ka structured JSON yahan paste karo → direct Firestore mein store ho jaega.<br>
+              <span style="color:#fb923c">Format:</span>
+              <code style="color:var(--cyan);font-size:0.62rem">{"account_1": {"home": {board_name, board_id, niche_keywords, ...}, ...}}</code>
+            </div>
+
+            <!-- Textarea -->
+            <div style="margin-bottom:0.9rem">
+              <div style="font-size:0.68rem;color:var(--text3);font-family:var(--mono);margin-bottom:0.5rem;letter-spacing:0.04em">PASTE CLAUDE JSON OUTPUT</div>
+              <textarea id="fb-json-input"
+                placeholder='{&#10;  "account_1": {&#10;    "home": {&#10;      "board_name": "Home Decor Ideas",&#10;      "board_id": "909445787192886518",&#10;      "niche_keywords": ["home decor", "aesthetic room", "interior design"],&#10;      "description": "Beautiful home decor inspiration",&#10;      "priority": 1,&#10;      "active": true,&#10;      "prompts": ["prompt 1...", "prompt 2..."]&#10;    }&#10;  }&#10;}'
+                style="width:100%;min-height:160px;background:rgba(0,0,0,0.3);border:1px solid rgba(251,146,60,0.25);border-radius:10px;padding:0.9rem;color:var(--text);font-family:var(--mono);font-size:0.68rem;line-height:1.6;resize:vertical;outline:none;transition:border-color 0.2s"
+                onfocus="this.style.borderColor='rgba(251,146,60,0.55)'"
+                onblur="this.style.borderColor='rgba(251,146,60,0.25)'"
+              ></textarea>
+            </div>
+
+            <!-- Buttons -->
+            <div style="display:flex;gap:0.6rem;margin-bottom:0.9rem;flex-wrap:wrap">
+              <button class="btn btn-sm" id="fb-upload-btn"
+                onclick="uploadBoards()"
+                style="background:linear-gradient(135deg,rgba(251,146,60,0.2),rgba(251,146,60,0.12));color:#fb923c;border:1px solid rgba(251,146,60,0.4);flex:1;min-width:140px">
+                🔥 Upload to Firebase
+              </button>
+              <button class="btn btn-ghost btn-sm" onclick="loadFirebaseStatus()" style="flex:0 0 auto">
+                ↻ Refresh Status
+              </button>
+              <button class="btn btn-ghost btn-sm" onclick="document.getElementById('fb-json-input').value='';document.getElementById('fb-result').style.display='none'" style="flex:0 0 auto;color:var(--text3)">
+                ✕ Clear
+              </button>
+            </div>
+
+            <!-- Result log -->
+            <div id="fb-result" style="display:none;background:rgba(0,0,0,0.35);border:1px solid var(--border);border-radius:10px;padding:0.9rem 1rem;font-family:var(--mono);font-size:0.67rem;color:var(--text2);line-height:1.8;max-height:200px;overflow-y:auto;word-break:break-word;white-space:pre-wrap"></div>
+
+          </div>
+        </div>
+      </div>
+
       <!-- ── PRODUCTS PIPELINE ───────────────────────────────────── -->
       <div class="products-section">
         <div class="products-head">
@@ -1766,15 +1832,115 @@ async function visionStart() {
   }
 }
 
+// ── Firebase Boards ────────────────────────────────────────────────────────
+async function loadFirebaseStatus() {
+  try {
+    const d = await fetch(BASE + 'api/firebase/boards-status').then(r => r.json());
+    if (!d.ok) {
+      document.getElementById('fb-a1-count').textContent = '—';
+      document.getElementById('fb-a1-names').textContent = d.error && d.error.includes('not set') ? 'FIREBASE_CREDS_JSON missing' : (d.error || 'unavailable');
+      document.getElementById('fb-a2-count').textContent = '—';
+      document.getElementById('fb-a2-names').textContent = '';
+      document.getElementById('fb-status-badge').textContent = 'OFFLINE';
+      document.getElementById('fb-status-badge').style.color = 'var(--red)';
+      return;
+    }
+    const a1 = d.account_1 || {};
+    const a2 = d.account_2 || {};
+    const a1boards = Object.keys(a1.boards || {});
+    const a2boards = Object.keys(a2.boards || {});
+    document.getElementById('fb-a1-count').textContent = a1boards.length;
+    document.getElementById('fb-a1-names').textContent = a1boards.length ? a1boards.join(', ') : 'no boards yet';
+    document.getElementById('fb-a2-count').textContent = a2boards.length;
+    document.getElementById('fb-a2-names').textContent = a2boards.length ? a2boards.join(', ') : 'no boards yet';
+    const total = a1boards.length + a2boards.length;
+    const badge = document.getElementById('fb-status-badge');
+    badge.textContent = total > 0 ? `${total} BOARDS` : 'EMPTY';
+    badge.style.color = total > 0 ? 'var(--green)' : '#fb923c';
+  } catch(e) {
+    document.getElementById('fb-a1-count').textContent = '—';
+    document.getElementById('fb-a2-count').textContent = '—';
+    document.getElementById('fb-a1-names').textContent = 'connection error';
+    document.getElementById('fb-a2-names').textContent = '';
+  }
+}
+
+async function uploadBoards() {
+  const jsonRaw = document.getElementById('fb-json-input').value.trim();
+  const btn     = document.getElementById('fb-upload-btn');
+  const result  = document.getElementById('fb-result');
+  const badge   = document.getElementById('fb-status-badge');
+
+  if (!jsonRaw) {
+    toast('⚠️ Pehle JSON paste karo', 'var(--orange)');
+    return;
+  }
+
+  // Basic JSON validation before sending
+  try { JSON.parse(jsonRaw); } catch(e) {
+    result.style.display = 'block';
+    result.style.color   = 'var(--red)';
+    result.textContent   = '❌ Invalid JSON: ' + e.message + '\n\nHint: Claude ke output mein extra text nahi hona chahiye — sirf { } ya [ ] wala part copy karo.';
+    return;
+  }
+
+  btn.disabled  = true;
+  btn.textContent = '⏳ Uploading...';
+  badge.textContent = 'UPLOADING';
+  result.style.display = 'none';
+
+  try {
+    const res = await fetch(BASE + 'api/firebase/upload-boards', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ json_data: jsonRaw }),
+    });
+    const d = await res.json();
+
+    result.style.display = 'block';
+
+    if (d.ok) {
+      result.style.color = 'var(--green)';
+      let lines = [`✅ ${d.summary}\n`];
+      (d.results || []).forEach(r => lines.push(r));
+      if ((d.error_details || []).length > 0) {
+        lines.push('\n⚠️ Errors:');
+        d.error_details.forEach(e => lines.push('  ' + e));
+      }
+      result.textContent = lines.join('\n');
+      toast(`🔥 ${d.uploaded} boards Firebase mein upload ho gaye!`, 'var(--green)');
+      badge.textContent = `${d.uploaded} UPLOADED`;
+      badge.style.color = 'var(--green)';
+      setTimeout(loadFirebaseStatus, 1000);
+    } else {
+      result.style.color = 'var(--red)';
+      result.textContent = '❌ Upload failed:\n' + (d.error || 'Unknown error');
+      badge.textContent = 'ERROR';
+      badge.style.color = 'var(--red)';
+      toast('❌ Upload failed — result dekho', 'var(--red)');
+    }
+  } catch(e) {
+    result.style.display = 'block';
+    result.style.color   = 'var(--red)';
+    result.textContent   = '❌ Network error: ' + e.message;
+    badge.textContent    = 'ERROR';
+    toast('❌ Network error', 'var(--red)');
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = '🔥 Upload to Firebase';
+  }
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 async function init() {
-  await Promise.all([loadStats(), loadMastermindStats(), loadProducts(), loadVisionStats(), loadNextPins(), loadBlogStats()]);
+  await Promise.all([loadStats(), loadMastermindStats(), loadProducts(), loadVisionStats(), loadNextPins(), loadBlogStats(), loadFirebaseStatus()]);
   // Periodic refresh — slow poll when idle
   setInterval(() => { loadStats(); loadMastermindStats(); }, 20000);
   setInterval(loadVisionStats, 8000);
   setInterval(loadProducts, 60000);
   setInterval(loadNextPins, 30000);
   setInterval(loadBlogStats, 15000);
+  setInterval(loadFirebaseStatus, 30000);
 }
 
 init();

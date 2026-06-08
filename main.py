@@ -758,6 +758,103 @@ async def cmo_chat_endpoint(req: ChatMessage):
 def ping():
     return {"message": "pong"}
 
+
+# ── Firebase Boards Upload ─────────────────────────────────────────────────────
+
+@app.post("/api/firebase/upload-boards")
+async def upload_boards_to_firebase(request: Request):
+    """
+    Claude ka structured JSON le ke Firestore mein upload karo.
+    
+    Supported formats:
+    A) Full structure: {"account_1": {"home": {...}, "cozy": {...}}, "account_2": {...}}
+    B) Single account: {"home": {...}, "cozy": {...}}  (account param required)
+    
+    Each board doc: boards/{account}/items/{niche_key}
+    """
+    try:
+        body = await request.json()
+        json_str = body.get("json_data", "")
+        override_account = body.get("account", "")   # optional: force single account
+
+        if not json_str:
+            return {"ok": False, "error": "json_data field khaali hai."}
+
+        try:
+            data = json.loads(json_str) if isinstance(json_str, str) else json_str
+        except Exception as e:
+            return {"ok": False, "error": f"JSON parse failed: {e}"}
+
+        from tools.firebase_boards import _get_db
+        db = _get_db()
+
+        results = []
+        errors  = []
+
+        def _write_boards(account: str, boards_dict: dict):
+            for niche_key, board_data in boards_dict.items():
+                try:
+                    if not isinstance(board_data, dict):
+                        errors.append(f"{account}/{niche_key}: value dict nahi hai")
+                        continue
+                    ref = db.collection("boards").document(account).collection("items").document(niche_key)
+                    board_data["active"] = board_data.get("active", True)
+                    ref.set(board_data, merge=True)
+                    results.append(f"✅ {account}/{niche_key} — {board_data.get('board_name', niche_key)}")
+                except Exception as e:
+                    errors.append(f"❌ {account}/{niche_key}: {e}")
+
+        # Format A: top-level keys are account names
+        if any(k.startswith("account_") for k in data.keys()):
+            for acc_key, boards_dict in data.items():
+                if acc_key.startswith("account_") and isinstance(boards_dict, dict):
+                    _write_boards(acc_key, boards_dict)
+        # Format B: single account (override_account required)
+        elif override_account:
+            _write_boards(override_account, data)
+        else:
+            return {
+                "ok": False,
+                "error": "Format detect nahi hua. Ya 'account_1'/'account_2' top-level keys rakho, ya 'account' field bhejo."
+            }
+
+        return {
+            "ok": len(results) > 0,
+            "uploaded": len(results),
+            "errors":   len(errors),
+            "results":  results,
+            "error_details": errors,
+            "summary": f"{len(results)} boards uploaded, {len(errors)} failed."
+        }
+
+    except Exception as e:
+        logger.error(f"Firebase upload error: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/firebase/boards-status")
+async def firebase_boards_status():
+    """Current Firestore boards ka quick status."""
+    try:
+        from tools.firebase_boards import get_boards, get_all_active_trends
+        a1_boards = get_boards("account_1")
+        a2_boards = get_boards("account_2")
+        a1_trends = get_all_active_trends("account_1")
+        a2_trends = get_all_active_trends("account_2")
+        return {
+            "ok": True,
+            "account_1": {
+                "boards": {k: {"board_name": v.get("board_name", k), "board_id": v.get("board_id", ""), "prompts": len(v.get("prompts", []))} for k, v in a1_boards.items()},
+                "trend_sets": len(a1_trends),
+            },
+            "account_2": {
+                "boards": {k: {"board_name": v.get("board_name", k), "board_id": v.get("board_id", ""), "prompts": len(v.get("prompts", []))} for k, v in a2_boards.items()},
+                "trend_sets": len(a2_trends),
+            },
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e), "account_1": {"boards": {}}, "account_2": {"boards": {}}}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=7860)
