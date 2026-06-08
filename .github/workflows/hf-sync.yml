@@ -38,7 +38,7 @@ jobs:
           
           # HF se fetch karke forcefully merge karna
           git fetch hf main
-          git merge hf/main --allow-unrelated-histories -m "Auto-sync latest code from Private Hugging Face"
+          git merge hf/main --allow-unrelated-histories -X theirs -m "Auto-sync latest code from Private Hugging Face"
 
       - name: Push to GitHub Private Repo
         run: |
