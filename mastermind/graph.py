@@ -155,6 +155,9 @@ async def run_mastermind(trigger: str = "scheduled", force_blog: bool = False) -
         "a2_boards":         {},
         "a1_trend_keywords": {},
         "a2_trend_keywords": {},
+        # V5 board selection — populated by node_board_selector
+        "board_id":          None,
+        "board_name":        None,
     }
 
     try:

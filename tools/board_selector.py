@@ -187,7 +187,7 @@ def select_board(
     try:
         logger.info(f"[BoardSelector] Trying Cerebras for {account_key}...")
         client = _get_cerebras_client()
-        raw = _call_llm(client, "qwen-3-235b", prompt)
+        raw = _call_llm(client, "qwen-3p5-32b", prompt)
         board_id = _validate_board_id(raw, boards)
 
         if board_id:

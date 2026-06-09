@@ -280,6 +280,8 @@ async def publish_next_pin(visual_style: str) -> dict:
     tags          = list(cmo.get("tags", []))
     alt_text      = str(cmo.get("alt_text", ""))
     niche         = cmo.get("niche", visual_style)
+    board_id      = cmo.get("board_id") or ""
+    board_name    = cmo.get("board_name") or ""
 
     if not visual_prompt:
         visual_prompt = (
@@ -315,6 +317,11 @@ async def publish_next_pin(visual_style: str) -> dict:
 
     # ── 4. Post to Pinterest via Make.com webhook ─────────────────────────────
     try:
+        if board_id:
+            logger.info(f"📌 [{target_account}] Board from selector: '{board_name}' (id={board_id})")
+        else:
+            logger.warning(f"⚠️ [{target_account}] No board_id from selector — niche fallback will be used")
+
         success = await post_to_pinterest(
             image_url=imgbb_url,
             title=title,
@@ -324,7 +331,9 @@ async def publish_next_pin(visual_style: str) -> dict:
             niche=niche,
             target_account=target_account,
             alt_text=alt_text,
-            blog_url=blog_url,      # ← blog URL as pin destination link
+            blog_url=blog_url,
+            board_id=board_id,
+            board_name=board_name,
         )
     except Exception as e:
         return {"success": False, "reason": f"Webhook error: {e}"}
