@@ -27,6 +27,32 @@ from tools.visions_ai import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
 
+# ── In-memory Log Buffer ───────────────────────────────────────────────────────
+import collections
+
+class _MemHandler(logging.Handler):
+    """Keeps last MAX_LINES log records in a deque — thread-safe reads."""
+    MAX_LINES = 500
+
+    def __init__(self):
+        super().__init__()
+        self._buf: collections.deque = collections.deque(maxlen=self.MAX_LINES)
+
+    def emit(self, record: logging.LogRecord):
+        try:
+            line = self.format(record)
+            self._buf.append(line)
+        except Exception:
+            pass
+
+    def get_lines(self, n: int = 200) -> list:
+        lines = list(self._buf)
+        return lines[-n:] if n < len(lines) else lines
+
+_mem_handler = _MemHandler()
+_mem_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
+logging.getLogger().addHandler(_mem_handler)
+
 # ── Gemini Client (for CMO chat) ───────────────────────────────────────────────
 try:
     from google import genai as _genai
@@ -758,6 +784,20 @@ async def cmo_chat_endpoint(req: ChatMessage):
 @app.get("/api/ping")
 def ping():
     return {"message": "pong"}
+
+
+@app.get("/api/logs")
+def get_logs(n: int = 200, filter: str = ""):
+    """Return last N log lines, optionally filtered by keyword/regex."""
+    import re
+    lines = _mem_handler.get_lines(n)
+    if filter and filter != "ALL":
+        try:
+            pat = re.compile(filter, re.IGNORECASE)
+            lines = [l for l in lines if pat.search(l)]
+        except Exception:
+            lines = [l for l in lines if filter.lower() in l.lower()]
+    return {"lines": lines, "total": len(lines)}
 
 
 # ── Local Boards — Save & Status ──────────────────────────────────────────────
