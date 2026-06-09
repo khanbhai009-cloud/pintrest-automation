@@ -987,6 +987,7 @@ OUTPUT FORMAT (JSON only — no other text before or after)
   "title": "<emotionally charged curiosity hook, max 90 chars>",
   "description": "<sensory lifestyle copy, 2-3 sentences, zero products/CTAs/prices, max 380 chars>",
   "tags": ["<Tag1>", "<Tag2>", "<Tag3>", "<Tag4>", "<Tag5>"],
+    "board_keywords": ["<kw1>", "<kw2>", "<kw3>", "<kw4>"],
   "alt_text": "<Descriptive SEO-optimized alt text describing the image visually, max 200 chars>",
   "visual_prompt": "<ultra-specific T2I art-direction prompt expanded from T2I Base, ends with: 4K ultra HD, photorealistic, highly detailed, award-winning photography>",
   "ratio": "{ratio}"
@@ -1238,6 +1239,14 @@ def _call_cmo_for_account(account_key: str, metrics: dict,
         result["ratio"]        = result.get("ratio", ratio)
         result["niche"]        = niche
         _attach_board_fields(result)
+        if "board_keywords" not in result or not isinstance(result.get("board_keywords"), list):
+            result["board_keywords"] = [
+                result.get("niche", ""),
+                result.get("vibe", ""),
+                result.get("visual_style", ""),
+            ]
+            result["board_keywords"] = [k for k in result["board_keywords"] if k]
+            logger.warning("[CMO] board_keywords missing from LLM output — derived fallback")
         logger.info(f"   [{account_key}] Gemini OK | style={forced_style} | niche={niche}")
         return result
     except Exception as gemini_err:
@@ -1257,6 +1266,14 @@ def _call_cmo_for_account(account_key: str, metrics: dict,
         result["ratio"]        = result.get("ratio", ratio)
         result["niche"]        = niche
         _attach_board_fields(result)
+        if "board_keywords" not in result or not isinstance(result.get("board_keywords"), list):
+            result["board_keywords"] = [
+                result.get("niche", ""),
+                result.get("vibe", ""),
+                result.get("visual_style", ""),
+            ]
+            result["board_keywords"] = [k for k in result["board_keywords"] if k]
+            logger.warning("[CMO] board_keywords missing from LLM output — derived fallback")
         logger.info(f"   [{account_key}] Cerebras OK | style={forced_style} | niche={niche}")
         return result
     except RuntimeError as rate_err:

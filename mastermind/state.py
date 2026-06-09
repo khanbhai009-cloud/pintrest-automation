@@ -42,3 +42,6 @@ class MastermindState(TypedDict):
     a2_boards:         Optional[Dict[str, Any]]  # {niche_key: board_data} for account_2
     a1_trend_keywords: Optional[Dict[str, Any]]  # {niche_key: [kw1, kw2]} active trends a1
     a2_trend_keywords: Optional[Dict[str, Any]]  # {niche_key: [kw1, kw2]} active trends a2
+    # ── Selected board info (filled by node_board_selector)
+    board_id: Optional[str]   # exact Pinterest board id (e.g. "909445787192886518")
+    board_name: Optional[str] # human-friendly board name (e.g. "Cozy Bedroom & Indoor Vibes")

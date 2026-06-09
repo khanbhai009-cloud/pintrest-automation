@@ -15,6 +15,7 @@ async def post_to_pinterest(
     alt_text: str = "",
     blog_url: str = "",
     board_id: str = "",    # Firebase dynamic board_id — overrides niche-based lookup
+    board_name: str = "",  # human-friendly board name for logging
 ) -> bool:
 
     # Strictly target account find karo
@@ -26,6 +27,11 @@ async def post_to_pinterest(
     # Firebase dynamic board_id overrides niche-based static config
     if not board_id:
         board_id = account["boards"].get(niche, account["boards"]["default"])
+
+    # Safety: ensure we have an explicit board_id before posting
+    if not board_id:
+        logger.error("[Webhook] board_id is None — skipping pin or posting without board")
+        return False
 
     hashtags = " ".join([f"#{t.strip()}" for t in tags])
     caption  = f"{description}\n\n{hashtags}"
@@ -39,10 +45,11 @@ async def post_to_pinterest(
         "caption":   caption[:500],
         "link":      final_link,
         "board_id":  board_id,
+        "board_name": board_name,
         "alt_text":  alt_text,
     }
 
-    logger.info(f"📌 [{account['name']}] Niche: {niche} → Board ID: {board_id} | Link: {'blog' if blog_url else 'affiliate'}")
+    logger.info(f"📌 [{account['name']}] Niche: {niche} → Board: {board_name or board_id} (id={board_id}) | Link: {'blog' if blog_url else 'affiliate'}")
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
