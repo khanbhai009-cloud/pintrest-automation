@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import random
@@ -757,6 +758,99 @@ async def cmo_chat_endpoint(req: ChatMessage):
 @app.get("/api/ping")
 def ping():
     return {"message": "pong"}
+
+
+# ── Local Boards — Save & Status ──────────────────────────────────────────────
+
+@app.post("/api/boards/save")
+async def save_boards_local(request: Request):
+    """
+    New format JSON ko local data/boards_config.json mein save karo.
+
+    Format:
+    {
+      "account_1": {"boards": [{"board_id": "...", "name": "...", "description": "..."}, ...]},
+      "account_2": {"boards": [...]}
+    }
+    Single account patch bhi supported:
+    {"account_1": {"boards": [...]}}  — sirf account_1 update hoga
+    """
+    try:
+        body = await request.json()
+        json_str = body.get("json_data", "")
+        if not json_str:
+            return {"ok": False, "error": "json_data field khaali hai."}
+
+        try:
+            incoming = json.loads(json_str) if isinstance(json_str, str) else json_str
+        except Exception as e:
+            return {"ok": False, "error": f"JSON parse failed: {e}"}
+
+        from tools.local_boards import load_boards_config, save_boards_config
+
+        # Load existing config to do a partial patch
+        existing = load_boards_config()
+
+        saved_accounts = []
+        total_boards = 0
+
+        for acc_key in ["account_1", "account_2"]:
+            if acc_key not in incoming:
+                continue
+            acc_data = incoming[acc_key]
+            boards = acc_data.get("boards", []) if isinstance(acc_data, dict) else []
+            if not isinstance(boards, list):
+                continue
+            existing[acc_key] = {"boards": boards}
+            saved_accounts.append(acc_key)
+            total_boards += len(boards)
+
+        if not saved_accounts:
+            return {"ok": False, "error": "account_1 ya account_2 keys nahi mili JSON mein."}
+
+        ok = save_boards_config(existing)
+        if not ok:
+            return {"ok": False, "error": "File save failed — server logs check karo."}
+
+        results = []
+        for acc_key in saved_accounts:
+            boards = existing[acc_key]["boards"]
+            for b in boards:
+                results.append(f"✅ {acc_key} — {b.get('name', b.get('board_id', '?'))}")
+
+        return {
+            "ok": True,
+            "uploaded": total_boards,
+            "errors": 0,
+            "results": results,
+            "error_details": [],
+            "summary": f"{total_boards} boards saved across {len(saved_accounts)} account(s).",
+        }
+
+    except Exception as e:
+        logger.error(f"Local boards save error: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/boards/status")
+async def boards_status_local():
+    """Local boards_config.json ka quick status."""
+    try:
+        from tools.local_boards import get_boards_status
+        data = get_boards_status()
+        a1 = data.get("account_1", {})
+        a2 = data.get("account_2", {})
+        return {
+            "ok": True,
+            "account_1": {
+                "boards": {b["board_id"]: {"board_name": b["name"], "board_id": b["board_id"]} for b in a1.get("boards", [])},
+            },
+            "account_2": {
+                "boards": {b["board_id"]: {"board_name": b["name"], "board_id": b["board_id"]} for b in a2.get("boards", [])},
+            },
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e), "account_1": {"boards": {}}, "account_2": {"boards": {}}}
 
 
 # ── Firebase Boards Upload ─────────────────────────────────────────────────────

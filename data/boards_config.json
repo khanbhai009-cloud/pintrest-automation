@@ -1,0 +1,50 @@
+{
+  "account_1": {
+    "boards": [
+      {
+        "board_id": "909445787192886518",
+        "name": "Cozy Bedroom & Indoor Vibes",
+        "description": "Bedrooms, reading nooks, fairy lights, candles, blankets, duvets, window seats, vanity setups, bohemian indoor spaces, hygge aesthetic, cozy desk corners, string lights, cozy corners, pillows, knit blankets, warm ambient lighting indoors"
+      },
+      {
+        "board_id": "909445787192891736",
+        "name": "Cottage & Garden Aesthetic",
+        "description": "English cottages, floral gardens, garden gates, pergolas, garden benches, climbing roses, cottage exteriors, garden pathways, flower beds, whimsical garden scenes, vintage bicycles with flowers, garden swings, floral window boxes"
+      },
+      {
+        "board_id": "909445787192891741",
+        "name": "Nature, Travel & Scenic Views",
+        "description": "Anime landscapes, Ghibli-style nature scenes, mountain views, scenic train journeys, Japanese streets, meadows, forests, bicycle rides through nature, picnic in countryside, cherry blossom scenery, waterfall views, scenic valleys"
+      },
+      {
+        "board_id": "909445787192891742",
+        "name": "Outdoor Living & Balcony",
+        "description": "Balcony gardens, porch setups, outdoor seating areas, garden tea settings, outdoor dining, Mediterranean patios, spring porches with flowers, twilight balconies, cozy balcony retreats, rattan furniture outdoors, string lights on balcony"
+      },
+      {
+        "board_id": "909445787192891737",
+        "name": "Home Decor & Aesthetic Interiors",
+        "description": "Living rooms, entryways, wall decor, bathroom with plants, bookshelves, home exteriors, modern house facades, indoor jungle rooms, minimalist interiors, aesthetic home corners, mirrors, floating shelves, home styling"
+      }
+    ]
+  },
+  "account_2": {
+    "boards": [
+      {
+        "board_id": "1093952634426985800",
+        "name": "Gaming Desk Setups",
+        "description": "Gaming desk setups, RGB lighting"
+      },
+      {
+        "board_id": "1093952634426985796",
+        "name": "Kawaii Aesthetic Desk",
+        "description": "Kawaii themed desks, pastel setups"
+      },
+      {
+        "board_id": "1093952634426985795",
+        "name": "Home Office Workspace",
+        "description": "Work from home setups"
+      }
+    ]
+  }
+}
