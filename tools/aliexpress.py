@@ -20,11 +20,10 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GROQ_MODEL = "llama-3.2-11b-vision-preview"
 GITHUB_MODEL = "Llama-3.2-11B-Vision-Instruct"
 
-# ── ENDPOINTS ──
-# SEARCH_URL aur HOST dono fix karo
-SEARCH_URL   = "https://real-time-amazon-data.p.rapidapi.com/search?query"
-DETAILS_URL  = "https://real-time-amazon-data.p.rapidapi.com/product-details"
-RAPIDAPI_HOST = "real-time-amazon-data.p.rapidapi.com"
+# ── ENDPOINTS (Axesso) ──
+SEARCH_URL    = "https://axesso-axesso-amazon-data-service-v1.p.rapidapi.com/amz/amazon-search-by-keyword-asin"
+DETAILS_URL   = "https://axesso-axesso-amazon-data-service-v1.p.rapidapi.com/amz/amazon-lookup-product"
+RAPIDAPI_HOST = "axesso-axesso-amazon-data-service-v1.p.rapidapi.com"
 
 
 KEYWORDS_BY_NICHE = {
@@ -84,7 +83,7 @@ async def get_best_lifestyle_image(image_urls: list) -> str:
     # Try Groq First
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            res = await client.post("https://api.groq.com/openai/v1/chat/completions", 
+            res = await client.post("https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
                 json={"model": GROQ_MODEL, "messages": [{"role": "user", "content": content_payload}], "temperature": 0.1})
             best_url = res.json()["choices"][0]["message"]["content"].strip().strip('"').strip("'")
@@ -117,7 +116,14 @@ async def _rapidapi_request(keyword: str, api_key: str, key_label: str):
     }
     try:
         async with httpx.AsyncClient(timeout=30, http2=True) as client:
-            r = await client.get(SEARCH_URL, headers=headers, params={"keyword": keyword, "country": "us"})
+            r = await client.get(SEARCH_URL, headers=headers, params={
+                "domainCode": "com",
+                "keyword": keyword,
+                "page": "1",
+                "excludeSponsored": "false",
+                "sortBy": "relevanceblender",
+                "withCache": "true"
+            })
             if r.status_code == 503:
                 logger.error(
                     f"❌ RapidAPI 503 [{key_label}] — possible Cloudflare block. "
@@ -127,8 +133,7 @@ async def _rapidapi_request(keyword: str, api_key: str, key_label: str):
             if r.status_code != 200:
                 logger.warning(f"⚠️ RapidAPI [{key_label}] returned {r.status_code}: {r.text[:300]}")
                 return None
-            data = r.json().get("data", [])
-            products = data.get("products", []) if isinstance(data, dict) else data
+            products = r.json().get("searchProductDetails", [])
             return products if isinstance(products, list) else None
     except Exception as e:
         logger.warning(f"⚠️ RapidAPI [{key_label}] exception: {e}")
@@ -137,7 +142,7 @@ async def _rapidapi_request(keyword: str, api_key: str, key_label: str):
 
 async def fetch_rapidapi(keyword):
     """RapidAPI Search with automatic key rotation (KEY1 → KEY2 on any failure)."""
-    # ── Key 1 (primary) ───────────────────────────────────────────────────────
+    # ── Key 1 (primary) ──
     if RAPIDAPI_KEY:
         result = await _rapidapi_request(keyword, RAPIDAPI_KEY, "KEY1")
         if result is not None:
@@ -146,7 +151,7 @@ async def fetch_rapidapi(keyword):
     else:
         logger.warning("⚠️ RAPIDAPI_KEY not set — skipping KEY1")
 
-    # ── Key 2 (fallback) ──────────────────────────────────────────────────────
+    # ── Key 2 (fallback) ──
     if RAPIDAPI_KEY2:
         result = await _rapidapi_request(keyword, RAPIDAPI_KEY2, "KEY2")
         if result is not None:
@@ -164,9 +169,12 @@ async def get_rapidapi_gallery(asin):
         headers = {"x-rapidapi-host": RAPIDAPI_HOST, "x-rapidapi-key": key}
         try:
             async with httpx.AsyncClient(timeout=20, http2=True) as client:
-                r = await client.get(DETAILS_URL, headers=headers, params={"asin": asin, "country": "us"})
+                r = await client.get(DETAILS_URL, headers=headers, params={
+                    "asin": asin,
+                    "domainCode": "com"
+                })
                 if r.status_code == 200:
-                    return r.json().get("data", {}).get("images", [])
+                    return r.json().get("imageUrlList", [])
                 logger.warning(f"⚠️ Gallery [{label}] returned {r.status_code} for ASIN {asin} — {'rotating key' if label == 'KEY1' else 'giving up'}")
         except Exception as e:
             logger.warning(f"⚠️ Gallery [{label}] exception for ASIN {asin}: {e}")
@@ -180,13 +188,10 @@ async def fetch_apify(keyword, max_results):
     try:
         async with httpx.AsyncClient(timeout=120) as client:
             res = await client.post(url, json=payload)
-            # FIX: Guard against non-200 responses (e.g. 400 Bad Request returns an error dict,
-            # not a list — slicing a dict causes "unhashable type: 'slice'")
             if res.status_code != 200:
                 logger.error(f"❌ Apify returned {res.status_code}: {res.text[:200]}")
                 return None
             data = res.json()
-            # Guard: ensure the parsed body is a list, not an error-shaped dict
             if not isinstance(data, list):
                 logger.error(f"❌ Apify response is not a list: {str(data)[:200]}")
                 return None
@@ -202,40 +207,40 @@ async def search_products(keyword: str = "", niche: str = "", max_results: int =
     normalized = []
 
     if raw_products:
-        logger.info("✅ Using RapidAPI results.")
+        logger.info("✅ Using RapidAPI (Axesso) results.")
         for idx, item in enumerate(raw_products[:max_results]):
             # Quality Shield
             try:
-                rating = float(str(item.get("rating", "0")).split()[0])
+                rating = float(str(item.get("stars", "0")).split()[0])
             except Exception:
                 rating = 0.0
             try:
-                reviews = int(''.join(filter(str.isdigit, str(item.get("ratingNumber", "0")))) or 0)
+                reviews = int(''.join(filter(str.isdigit, str(item.get("numberOfRatings", "0")))) or 0)
             except Exception:
                 reviews = 0
 
             if rating < 3.5 or reviews < 50:
                 continue
 
-            asin = item.get("asin")
-            title = item.get("title", "Amazon Product")
+            asin  = item.get("asin")
+            title = item.get("productTitle", "Amazon Product")
             price = item.get("price", "$0.00")
 
-            # Image via RapidAPI details endpoint only
+            # Image via details endpoint
             gallery = await get_rapidapi_gallery(asin)
-            await asyncio.sleep(2)  # Detail calls delay
+            await asyncio.sleep(2)
 
-            best_img = await get_best_lifestyle_image(gallery) if gallery else item.get("thumbnail", "")
+            best_img = await get_best_lifestyle_image(gallery) if gallery else item.get("imgUrl", "")
 
             normalized.append({
                 "product_id": asin, "product_name": title[:100], "sale_price": str(price),
                 "rating": rating, "image_url": best_img, "product_url": f"https://www.amazon.com/dp/{asin}"
             })
-            await asyncio.sleep(5) # Vision call spacing
+            await asyncio.sleep(5)
 
         return normalized
 
-    # RapidAPI failed or returned nothing — try Apify fallback
+    # RapidAPI failed — Apify fallback
     logger.warning(f"⚠️ RapidAPI returned nothing for keyword: '{keyword}' — switching to Apify fallback.")
     apify_data = await fetch_apify(keyword, max_results)
     if not apify_data:
@@ -244,7 +249,6 @@ async def search_products(keyword: str = "", niche: str = "", max_results: int =
 
     logger.info("🛡️ Using Apify results.")
     for item in apify_data[:max_results]:
-        # Flexible extraction from Apify actor output
         try:
             rating = float(item.get("rating") or item.get("stars") or 0)
         except Exception:
@@ -257,11 +261,10 @@ async def search_products(keyword: str = "", niche: str = "", max_results: int =
         if rating < 3.5 or reviews < 50:
             continue
 
-        asin = item.get("asin") or item.get("productId") or item.get("id")
+        asin  = item.get("asin") or item.get("productId") or item.get("id")
         title = item.get("title") or item.get("name") or item.get("productTitle") or "Amazon Product"
         price = item.get("price") or item.get("salePrice") or item.get("priceText") or "$0.00"
 
-        # Images: prefer lists, fall back to single url fields
         images = item.get("images") or item.get("imageUrls") or item.get("image") or item.get("thumbnail") or []
         if isinstance(images, str):
             images = [images]
