@@ -234,9 +234,20 @@ async def _write_blog_with_fallback(prompt: str) -> dict:
         try:
             logger.info(f"✍️ [BlogWriter] Trying {label}...")
             result = await fn()
+
+            # Unwrap common Gemini wrapper patterns
+            if isinstance(result, dict):
+                if not result.get("title") and result.get("blog"):
+                    result = result["blog"]
+                elif not result.get("title") and result.get("post"):
+                    result = result["post"]
+                elif not result.get("title") and result.get("content"):
+                    result = result["content"]
+
             if result and result.get("title"):
                 logger.info(f"✅ [BlogWriter] {label} succeeded")
                 return result
+
             logger.warning(f"⚠️ [BlogWriter] {label} returned invalid/empty blog")
         except Exception as e:
             logger.warning(f"⚠️ [BlogWriter] {label} failed: {str(e)[:120]}")
