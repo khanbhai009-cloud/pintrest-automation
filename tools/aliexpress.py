@@ -101,7 +101,7 @@ async def get_best_lifestyle_image(image_urls: list) -> str:
     except: return safe_images[0]
 
 # ── ENGINES ──
-async def _rapidapi_request(keyword: str, api_key: str, key_label: str):
+async def _rapidapi_request(keyword: str, api_key: str, key_label: str, max_results: int = 20):
     """Single RapidAPI attempt with the given key. Returns products list or None."""
     headers = {
         "x-rapidapi-host": RAPIDAPI_HOST,
@@ -130,21 +130,35 @@ async def _rapidapi_request(keyword: str, api_key: str, key_label: str):
                     f"Response body:\n{r.text[:2000]}"
                 )
                 return None
+            if r.status_code == 403:
+                logger.warning(f"⚠️ RapidAPI [{key_label}] returned 403 (auth/quota): {r.text[:200]}")
+                return None
             if r.status_code != 200:
                 logger.warning(f"⚠️ RapidAPI [{key_label}] returned {r.status_code}: {r.text[:300]}")
                 return None
-            products = r.json().get("searchProductDetails", [])
-            return products if isinstance(products, list) else None
+            data = r.json()
+            products = data.get("searchProductDetails", [])
+            if not products:
+                logger.warning(
+                    f"⚠️ RapidAPI [{key_label}] searchProductDetails empty for '{keyword}' | "
+                    f"response keys: {list(data.keys())}"
+                )
+                return None
+            logger.info(f"✅ RapidAPI [{key_label}] got {len(products)} products for '{keyword}'")
+            return products[:max_results] if isinstance(products, list) else None
     except Exception as e:
         logger.warning(f"⚠️ RapidAPI [{key_label}] exception: {e}")
         return None
 
 
-async def fetch_rapidapi(keyword):
-    """RapidAPI Search with automatic key rotation (KEY1 → KEY2 on any failure)."""
+async def fetch_rapidapi(keyword: str, max_results: int = 20):
+    """
+    RapidAPI Search with automatic key rotation (KEY1 → KEY2 on any failure).
+    max_results: how many raw products to return (default 20 for bulk flow).
+    """
     # ── Key 1 (primary) ──
     if RAPIDAPI_KEY:
-        result = await _rapidapi_request(keyword, RAPIDAPI_KEY, "KEY1")
+        result = await _rapidapi_request(keyword, RAPIDAPI_KEY, "KEY1", max_results=max_results)
         if result is not None:
             return result
         logger.warning("🔄 RapidAPI KEY1 failed — rotating to KEY2...")
@@ -153,7 +167,7 @@ async def fetch_rapidapi(keyword):
 
     # ── Key 2 (fallback) ──
     if RAPIDAPI_KEY2:
-        result = await _rapidapi_request(keyword, RAPIDAPI_KEY2, "KEY2")
+        result = await _rapidapi_request(keyword, RAPIDAPI_KEY2, "KEY2", max_results=max_results)
         if result is not None:
             logger.info("✅ RapidAPI KEY2 succeeded.")
         return result
@@ -219,8 +233,17 @@ async def search_products(keyword: str = "", niche: str = "", max_results: int =
             except Exception:
                 reviews = 0
 
+            title = item.get("productTitle", "")[:60]
             if rating < 3.5 or reviews < 50:
+                logger.warning(
+                    f"[QualityFilter] ❌ REJECTED: '{title}' | "
+                    f"rating={rating} (need≥3.5) | reviews={reviews} (need≥50)"
+                )
                 continue
+            logger.info(
+                f"[QualityFilter] ✅ PASSED: '{title}' | "
+                f"rating={rating} | reviews={reviews}"
+            )
 
             asin  = item.get("asin")
             title = item.get("productTitle", "Amazon Product")
