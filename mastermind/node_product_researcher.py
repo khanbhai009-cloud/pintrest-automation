@@ -36,13 +36,13 @@ MAX_BLOG_PRODUCTS  = 4      # max products to include in blog
 
 VISION_PRODUCT_PROMPT = """You are a Product Identification Expert for Pinterest affiliate marketing.
 
-Analyze this image and identify ALL purchasable products visible in it.
+Analyze this image and identify purchasable products visible in it.
 
 CRITICAL OUTPUT RULES:
 - Output ONLY a valid JSON array
 - Array starts with [ and ends with ]
 - No explanation, no markdown fences, no extra text before or after
-- 3 to 5 products minimum
+- Exactly 3 products only
 
 JSON format:
 [
@@ -60,6 +60,7 @@ Rules:
 - search_keyword must be Amazon-optimized (3-6 words, specific, includes color/size/material if visible)
 - category: bedding / furniture / lighting / decor / tech / gaming / accessories / kitchen / outdoor
 - suggested_para: 1 to 6 (which paragraph to insert affiliate link)
+- Exactly 3 products — no more, no less
 
 Output ONLY the JSON array. Nothing else at all."""
 
@@ -200,7 +201,7 @@ async def _try_gemini(api_key: str, image_b64: str, key_label: str) -> list:
             config=genai_types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0.1,
-                max_output_tokens=1200,
+                max_output_tokens=4096,
             ),
         )
 
@@ -360,14 +361,36 @@ async def _llm_quality_filter(keyword: str, style: str, niche: str, raw_products
     # Build slim product list for LLM (essential fields only)
     slim = []
     for p in raw_products:
-        try:
-            rating = float(str(p.get("stars", p.get("rating", "0"))).split()[0])
-        except Exception:
-            rating = 0.0
-        try:
-            reviews = int(''.join(filter(str.isdigit, str(p.get("numberOfRatings", p.get("reviews", "0"))))) or 0)
-        except Exception:
-            reviews = 0
+        # Try all possible rating field names
+        rating = 0.0
+        for field in ["stars", "rating", "averageRating", "productRating", "avgRating", "productStar"]:
+            val = p.get(field)
+            if val:
+                try:
+                    rating = float(str(val).split()[0])
+                    if rating > 0:
+                        break
+                except Exception:
+                    continue
+
+        # Try all possible review count field names
+        reviews = 0
+        for field in ["numberOfRatings", "reviews", "reviewCount", "totalReviews", "ratingsCount", "numberOfReviews", "ratingCount"]:
+            val = p.get(field)
+            if val:
+                try:
+                    reviews = int(''.join(filter(str.isdigit, str(val))) or 0)
+                    if reviews > 0:
+                        break
+                except Exception:
+                    continue
+
+        # Log first 3 products to verify field parsing
+        if len(slim) < 3:
+            logger.info(
+                f"[SlimBuild] asin={p.get('asin','')} | rating={rating} | "
+                f"reviews={reviews} | raw_keys={list(p.keys())}"
+            )
 
         slim.append({
             "asin":    p.get("asin", p.get("product_id", "")),
@@ -426,14 +449,30 @@ def _basic_quality_filter(raw_products: list) -> dict:
 
     for p in raw_products:
         asin = p.get("asin", p.get("product_id", ""))
-        try:
-            rating = float(str(p.get("stars", "0")).split()[0])
-        except Exception:
-            rating = 0.0
-        try:
-            reviews = int(''.join(filter(str.isdigit, str(p.get("numberOfRatings", "0")))) or 0)
-        except Exception:
-            reviews = 0
+
+        # Try all possible rating field names
+        rating = 0.0
+        for field in ["stars", "rating", "averageRating", "productRating", "avgRating", "productStar"]:
+            val = p.get(field)
+            if val:
+                try:
+                    rating = float(str(val).split()[0])
+                    if rating > 0:
+                        break
+                except Exception:
+                    continue
+
+        # Try all possible review count field names
+        reviews = 0
+        for field in ["numberOfRatings", "reviews", "reviewCount", "totalReviews", "ratingsCount", "numberOfReviews", "ratingCount"]:
+            val = p.get(field)
+            if val:
+                try:
+                    reviews = int(''.join(filter(str.isdigit, str(val))) or 0)
+                    if reviews > 0:
+                        break
+                except Exception:
+                    continue
 
         title = p.get("productTitle", "")[:50]
         if rating >= 3.5 and reviews >= 50:

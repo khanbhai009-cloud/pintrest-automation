@@ -165,7 +165,9 @@ async def _try_gemini_text(api_key: str, prompt: str, key_label: str) -> dict:
         )
 
     response = await asyncio.wait_for(asyncio.to_thread(_sync), timeout=120)
-    return _parse_blog_json(response.text)
+    raw = response.text or ""
+    logger.info(f"[BlogWriter] Gemini raw response (500 chars): {raw[:500]}")
+    return _parse_blog_json(raw)
 
 
 async def _try_groq_text(prompt: str) -> dict:
