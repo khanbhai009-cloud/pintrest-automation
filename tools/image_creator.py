@@ -236,6 +236,7 @@ async def _cloudflare_once(prompt: str, ratio: str) -> Optional[bytes]:
     headers = {
         "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
         "Content-Type":  "application/json",
+        "User-Agent":    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
     payload = {
@@ -298,6 +299,7 @@ async def _huggingface_once(prompt: str, ratio: str) -> Optional[bytes]:
     headers = {
         "Authorization": f"Bearer {HF_API_TOKEN}",
         "Content-Type":  "application/json",
+        "User-Agent":    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
     payload = {
