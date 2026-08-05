@@ -21,3 +21,4 @@ typing_extensions
 pytz
 tenacity
 firebase-admin
+dnspython
