@@ -67,7 +67,7 @@ _RATIO_DIMS = {
 }
 
 _POLLINATIONS_BASE = "https://image.pollinations.ai/prompt"
-_HF_FLUX_URL       = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
+_HF_FLUX_URL       = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
 
 # ── Negative prompt — always appended to block garbage outputs ─────────────────
 _NEGATIVE_PROMPT = (
@@ -272,7 +272,10 @@ async def _t2i_cloudflare(prompt: str, ratio: str) -> Optional[bytes]:
                 return img
             logger.warning(f"⚠️ [Cloudflare] Attempt {attempt}: invalid/too small")
         except Exception as e:
-            logger.warning(f"⚠️ [Cloudflare] Attempt {attempt} error: {e}")
+            logger.warning(
+                f"⚠️ [Cloudflare] Attempt {attempt} error: "
+                f"{type(e).__name__}: {e!r} | cause={e.__cause__!r}"
+            )
 
         if attempt < _CF_MAX_RETRIES:
             delay = random.randint(30, 50)
@@ -339,8 +342,17 @@ async def _t2i_huggingface(prompt: str, ratio: str) -> Optional[bytes]:
                 logger.info(f"✅ [HuggingFace] {len(img):,} bytes on attempt {attempt}")
                 return img
             logger.warning(f"⚠️ [HuggingFace] Attempt {attempt}: invalid/too small")
+        except httpx.HTTPStatusError as e:
+            if e.response is not None and e.response.status_code == 410:
+                logger.error(
+                    "❌ [HuggingFace] FLUX.1-schnell is permanently removed from "
+                    "hf-inference (410 Gone since Jul 2026) — skipping retries, "
+                    "moving straight to Pollinations."
+                )
+                return None
+            logger.warning(f"⚠️ [HuggingFace] Attempt {attempt} error: {type(e).__name__}: {e!r}")
         except Exception as e:
-            logger.warning(f"⚠️ [HuggingFace] Attempt {attempt} error: {e}")
+            logger.warning(f"⚠️ [HuggingFace] Attempt {attempt} error: {type(e).__name__}: {e!r}")
 
         if attempt < _HF_MAX_RETRIES:
             logger.info(f"⏳ [HuggingFace] Waiting {_HF_RETRY_DELAY}s before retry...")
