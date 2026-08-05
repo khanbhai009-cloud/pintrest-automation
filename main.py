@@ -27,7 +27,28 @@ from tools.visions_ai import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
 
-# ── In-memory Log Buffer ───────────────────────────────────────────────────────
+# ── In-memory Log Buffer
+import socket
+import dns.resolver
+
+_dns_cache = {}
+_original_getaddrinfo = socket.getaddrinfo
+
+def _patched_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    if host in _dns_cache:
+        ip = _dns_cache[host]
+    else:
+        try:
+            resolver = dns.resolver.Resolver()
+            resolver.nameservers = ["1.1.1.1", "8.8.8.8"]  # Cloudflare + Google DNS
+            answer = resolver.resolve(host, "A")
+            ip = answer[0].to_text()
+            _dns_cache[host] = ip
+        except Exception:
+            return _original_getaddrinfo(host, port, family, type, proto, flags)
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (ip, port))]
+
+socket.getaddrinfo = _patched_getaddrinfo ───────────────────────────────────────────────────────
 import collections
 
 class _MemHandler(logging.Handler):
