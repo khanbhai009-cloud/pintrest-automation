@@ -1,0 +1,44 @@
+name: Manual Pinteresto Full Flow
+
+on:
+  workflow_dispatch:
+    inputs:
+      account:
+        description: 'Target Account (account_1 ya account_2)'
+        required: true
+        default: 'account_1'
+
+jobs:
+  run-full-flow:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v3
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: 📦 Install Requirements
+        run: pip install -r requirements.txt
+
+      - name: 🚀 Execute Full Mastermind Flow
+        env:
+          # Saari APIs ko enable kar de taaki pura architecture chale
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          GOOGLE_CREDS_JSON: ${{ secrets.GOOGLE_CREDS_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
+          MAKE_WEBHOOK_URL: ${{ secrets.MAKE_WEBHOOK_URL }}
+          MAKE_WEBHOOK_URL_2: ${{ secrets.MAKE_WEBHOOK_URL_2 }}
+          FIREBASE_CREDS_JSON: ${{ secrets.FIREBASE_CREDS_JSON }}
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+          APIFY_API_KEY: ${{ secrets.APIFY_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python run_full_flow.py ${{ github.event.inputs.account }}
+          
