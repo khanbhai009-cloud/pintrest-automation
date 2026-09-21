@@ -170,7 +170,7 @@ def select_board(
     try:
         logger.info(f"[BoardSelector] Trying Groq for {account_key}...")
         client = _get_groq_client()
-        raw = _call_llm(client, "llama-3.3-70b-versatile", prompt)
+        raw = _call_llm(client, "qwen3.8-27b", prompt)
         board_id = _validate_board_id(raw, boards)
 
         if board_id:
