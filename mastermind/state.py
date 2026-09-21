@@ -27,6 +27,7 @@ class MastermindState(TypedDict):
     # ── Global pipeline flags ────────────────────────────────────────────
     fallback_triggered:   bool
     cycle_trigger:        str
+    target_account:       Optional[str]  # "account_1" or "account_2" — decided by node_cmo_mastermind
 
     # ── V4 Blog Pipeline fields ───────────────────────────────────────────
     last_posted_image_url: Optional[str]   # ImgBB URL set by agent after pin post

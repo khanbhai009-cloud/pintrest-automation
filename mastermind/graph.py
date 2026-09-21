@@ -33,25 +33,26 @@ logger = logging.getLogger(__name__)
 async def node_agent_executor(state: MastermindState) -> dict:
     """
     Node 3 — Agent Executor.
-    Checks cycle_trigger to decide which account(s) to run:
-      - "account1" in trigger (no "account2") → only Account 1
-      - "account2" in trigger (no "account1") → only Account 2
-      - otherwise (both/manual/scheduled)     → both accounts sequentially
-
-    Blog pipeline now runs INSIDE publish_next_pin (inline), so this node
-    only needs to handle the agent execution and capture the result.
+    Uses target_account when set by node_cmo_mastermind; otherwise falls back to
+    explicit account1/account2 trigger parsing for safety.
     """
-    trigger     = state.get("cycle_trigger", "")
+    target = state.get("target_account")
     a1_strategy = state.get("a1_cmo_strategy", {})
     a2_strategy = state.get("a2_cmo_strategy", {})
 
-    only_a1 = "account1" in trigger and "account2" not in trigger
-    only_a2 = "account2" in trigger and "account1" not in trigger
-    run_a1  = not only_a2
-    run_a2  = not only_a1
+    if target is not None:
+        run_a1 = (target == "account_1")
+        run_a2 = (target == "account_2")
+    else:
+        trigger = state.get("cycle_trigger", "")
+        only_a1 = "account1" in trigger and "account2" not in trigger
+        only_a2 = "account2" in trigger and "account1" not in trigger
+        run_a1 = not only_a2
+        run_a2 = not only_a1
 
+    trigger = state.get("cycle_trigger", "")
     logger.info(
-        f"🤖 [Node 3 — Agent Executor] trigger={trigger} | "
+        f"🤖 [Node 3 — Agent Executor] trigger={trigger} | target={target} | "
         f"run_a1={run_a1} run_a2={run_a2}"
     )
 
@@ -142,6 +143,7 @@ async def run_mastermind(trigger: str = "scheduled", force_blog: bool = False) -
         "a2_publish_status": {},
         "fallback_triggered": False,
         "cycle_trigger":     trigger,
+        "target_account":     None,
         # Blog fields — populated inline by publish_next_pin, kept for manual triggers
         "last_posted_image_url": "",
         "should_create_blog":    False,

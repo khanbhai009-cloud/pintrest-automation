@@ -1294,28 +1294,48 @@ def _call_cmo_for_account(account_key: str, metrics: dict,
         return _build_from_style_data(forced_style, ratio, niche, account_key, sheet_row=sheet_row)
 
 
+def _decide_turn() -> str:
+    """
+    Reads next_turn from Style_Tracker, flips it, saves back.
+    Returns which account should post THIS cycle.
+    """
+    tracker = load_style_tracker()
+    turn = tracker.get("next_turn", "account_1")
+    tracker["next_turn"] = "account_2" if turn == "account_1" else "account_1"
+    save_style_tracker(tracker)
+    return turn
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # LANGGRAPH NODE
 # ══════════════════════════════════════════════════════════════════════════════
 async def node_cmo_mastermind(state: MastermindState) -> dict:
     """
     Node 2 — CMO Mastermind [Elite Visual v6 — Sequential Rotation]
-    
+
     ROTATION: Each run picks the NEXT style in the ordered queue.
     A1: 8 styles cycle → Run1=boho_study, Run2=sunflower_porch, Run3=pastel_kitchen...
     A2: 5 styles cycle → Run1=kawaii_gaming, Run2=cottagecore_den, Run3=sage_workspace...
-    
+
     Tracker: data/style_tracker.json
     """
     trigger = state.get("cycle_trigger", "")
 
-    only_a1 = "account1" in trigger and "account2" not in trigger
-    only_a2 = "account2" in trigger and "account1" not in trigger
-    run_a1  = not only_a2
-    run_a2  = not only_a1
+    explicit_a1 = "account1" in trigger and "account2" not in trigger
+    explicit_a2 = "account2" in trigger and "account1" not in trigger
 
-    label = "A1 only" if only_a1 else ("A2 only" if only_a2 else "Both")
-    logger.info(f"[Node 2 - CMO] Sequential Rotation v6 | {label} | trigger={trigger}")
+    if explicit_a1:
+        target = "account_1"
+    elif explicit_a2:
+        target = "account_2"
+    else:
+        target = _decide_turn()
+
+    run_a1 = (target == "account_1")
+    run_a2 = (target == "account_2")
+
+    label = "A1" if run_a1 else "A2"
+    logger.info(f"[Node 2 - CMO] Turn-based v6 | target={label} | trigger={trigger}")
 
     # Log what's coming up next (peek without advancing)
     if run_a1:
@@ -1395,4 +1415,5 @@ async def node_cmo_mastermind(state: MastermindState) -> dict:
         "a1_cmo_strategy":    a1_strategy,
         "a2_cmo_strategy":    a2_strategy,
         "fallback_triggered": fallback,
+        "target_account":     target,
     }
