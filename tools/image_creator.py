@@ -241,12 +241,7 @@ async def _cloudflare_once(prompt: str, ratio: str) -> Optional[bytes]:
 
     payload = {
         "prompt":          enriched,
-        "negative_prompt": _NEGATIVE_PROMPT,
-        "num_steps":       8,                                # max for Flux Schnell quality
-        "seed":            random.randint(1, 2_147_483_647), # fresh every call
-        "width":           w,
-        "height":          h,
-    }
+        }
 
     async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
         resp = await client.post(url, headers=headers, json=payload)
