@@ -226,7 +226,8 @@ async def _cloudflare_once(prompt: str, ratio: str) -> Optional[bytes]:
         raise RuntimeError("CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN not configured.")
 
     w, h     = _get_dims(ratio)
-    enriched = _enrich_prompt(f"{prompt}, portrait orientation {w}x{h}")
+    # Removing resolution text from prompt to be safe as well
+    enriched = _enrich_prompt(prompt)
 
     url = (
         f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}"
@@ -239,9 +240,10 @@ async def _cloudflare_once(prompt: str, ratio: str) -> Optional[bytes]:
         "User-Agent":    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
+    # FIXED PAYLOAD: Removed seed, width, height, num_steps, and negative_prompt
     payload = {
-        "prompt":          enriched,
-        }
+        "prompt": enriched
+    }
 
     async with httpx.AsyncClient(timeout=_CALL_TIMEOUT) as client:
         resp = await client.post(url, headers=headers, json=payload)
