@@ -33,3 +33,4 @@ jobs:
           FIREBASE_CREDS_JSON: ${{ secrets.FIREBASE_CREDS_JSON }}
           MAKE_WEBHOOK_URL: ${{ secrets.MAKE_WEBHOOK_URL }}
           MAKE_WEBHOOK_URL_2: ${{ secrets.MAKE_WEBHOOK_URL_2 }}
+# fix cron trigger
